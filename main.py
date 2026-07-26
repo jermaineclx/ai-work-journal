@@ -2,7 +2,7 @@
 
 Keeps this file minimal per 03_IMPLEMENTATION.md §17 — all real wiring
 lives in `app.api.app.create_app()` / `app.core.container.Container`.
-"""
+```"""
 
 from __future__ import annotations
 
