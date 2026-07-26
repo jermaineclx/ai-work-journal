@@ -97,7 +97,7 @@ is and where to get it. In short, you need:
 | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/) (embeddings only) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` or `_FILE` | Google Cloud service account (see below) |
 | `GOOGLE_ACCOUNT_EMAIL` | Your personal Google account, so the auto-created sheet is shared with you |
-| `GOOGLE_SHEET_ID` | Leave blank on first run — see below |
+| `GOOGLE_SHEET_ID` | See below — required for personal (non-Workspace) Google accounts |
 
 ### 3. Google Cloud setup
 
@@ -106,19 +106,39 @@ is and where to get it. In short, you need:
 2. Create a Service Account, generate a JSON key.
 3. Put the JSON contents in `GOOGLE_SERVICE_ACCOUNT_JSON` (or save the
    file and point `GOOGLE_SERVICE_ACCOUNT_FILE` at it).
-4. Set `GOOGLE_ACCOUNT_EMAIL` to your own Google account — this is who
-   the app shares the auto-created spreadsheet with.
-5. Verify connectivity:
+4. Set `GOOGLE_ACCOUNT_EMAIL` to your own Google account.
+
+5. **Create the spreadsheet.** How depends on your account type:
+
+   - **Personal Gmail account (the common case):** service accounts on
+     personal Google accounts have **zero Drive storage quota** of
+     their own — they can edit files shared with them, but Google
+     rejects any attempt to *create* a new file under the service
+     account's ownership (`403: storage quota has been exceeded`). So:
+     1. Create a blank spreadsheet yourself at
+        [sheets.new](https://sheets.new).
+     2. Share it with your service account's email (the `client_email`
+        field in the JSON key — looks like
+        `xxx@yyy.iam.gserviceaccount.com`) with **Editor** access.
+     3. Copy the spreadsheet ID from its URL
+        (`https://docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`)
+        into `GOOGLE_SHEET_ID`.
+   - **Google Workspace account with delegation configured:** you can
+     leave `GOOGLE_SHEET_ID` blank and let the app create+share it
+     automatically on first run — this only works if the service
+     account actually has storage quota available (i.e. domain-wide
+     delegation or a Shared Drive), which most individual setups don't.
+
+6. Verify connectivity:
 
    ```bash
    python scripts/verify_sheets_connection.py
    ```
 
-   This creates the spreadsheet (or opens the one in `GOOGLE_SHEET_ID`
-   if set), provisions the `Tasks`/`Daily Logs` tabs, and prints the
-   spreadsheet ID and URL. Copy that ID into `GOOGLE_SHEET_ID` in
-   `.env` so subsequent runs reuse the same sheet instead of creating a
-   new one.
+   With `GOOGLE_SHEET_ID` set, this just opens that sheet and
+   provisions the `Tasks`/`Daily Logs` tabs. If left blank and creation
+   fails with the storage-quota error above, follow step 5's manual
+   path.
 
 ### 4. Run locally
 

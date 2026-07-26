@@ -69,7 +69,19 @@ class GoogleSheetsClient:
         self.service_account_email: str = credentials.service_account_email
 
     async def create_spreadsheet(self, title: str) -> str:
-        spreadsheet = await _with_retry(self._gc.create, title)
+        try:
+            spreadsheet = await _with_retry(self._gc.create, title)
+        except SheetsIntegrationError as exc:
+            if "storage quota" in str(exc).lower():
+                raise SheetsIntegrationError(
+                    "Google rejected spreadsheet creation because this service account has no "
+                    "Drive storage quota of its own (normal for service accounts on personal/non-"
+                    "Workspace Google accounts — they can edit shared files but can't own new ones). "
+                    "Fix: create a blank Google Sheet manually in your own Google account, share it "
+                    f"with '{self.service_account_email}' as Editor, then set GOOGLE_SHEET_ID to that "
+                    "sheet's ID (from its URL) so the app never tries to create one itself."
+                ) from exc
+            raise
         return spreadsheet.id
 
     async def share(self, spreadsheet_id: str, email: str, *, role: str = "writer") -> None:
