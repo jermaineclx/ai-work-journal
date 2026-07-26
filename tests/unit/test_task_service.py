@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
 from app.domain.entities import Task
@@ -77,52 +75,3 @@ async def test_edit_resources_updates_task_without_refreshing_embedding():
 
     assert task.resources == ["DataSuite Dashboard", "https://example.com/query"]
     assert "T001" not in refresher.refreshed
-
-
-@pytest.mark.asyncio
-async def test_list_known_stakeholders_dedupes_and_orders_by_recency():
-    service, repo, _ = _make_service()
-    await repo.create(
-        Task(
-            task_id="T001",
-            title="A",
-            stakeholder="Priya Shah",
-            status=TaskStatus.IN_PROGRESS,
-            updated_at=_dt(2026, 1, 1),
-        )
-    )
-    await repo.create(
-        Task(
-            task_id="T002", title="B", stakeholder="John Tan", status=TaskStatus.IN_PROGRESS, updated_at=_dt(2026, 1, 3)
-        )
-    )
-    await repo.create(
-        Task(
-            task_id="T003",
-            title="C",
-            stakeholder="Priya Shah",
-            status=TaskStatus.IN_PROGRESS,
-            updated_at=_dt(2026, 1, 2),
-        )
-    )
-
-    stakeholders = await service.list_known_stakeholders()
-
-    assert stakeholders == ["John Tan", "Priya Shah"]
-
-
-@pytest.mark.asyncio
-async def test_list_known_stakeholders_respects_limit():
-    service, repo, _ = _make_service()
-    for i in range(10):
-        await repo.create(
-            Task(task_id=f"T{i:03d}", title=f"Task {i}", stakeholder=f"Person {i}", status=TaskStatus.IN_PROGRESS)
-        )
-
-    stakeholders = await service.list_known_stakeholders(limit=3)
-
-    assert len(stakeholders) == 3
-
-
-def _dt(year: int, month: int, day: int) -> datetime:
-    return datetime(year, month, day)

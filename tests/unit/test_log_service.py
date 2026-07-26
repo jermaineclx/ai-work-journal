@@ -154,7 +154,7 @@ def _build_ai_output(
             matched_task_title=task_title if matched_task_id else None,
             confidence=confidence,
         ),
-        status=StatusResult(status=TaskStatus.WAITING_QA, confidence=confidence),
+        status=StatusResult(status=TaskStatus.KIV, confidence=confidence),
         tags=TagResult(tags=["SQL", "Finance"]),
         resources=ResourceResult(resources=[]),
         impact=ImpactResult(impact=ImpactLevel.MEDIUM),
@@ -205,7 +205,7 @@ async def test_high_confidence_existing_match_auto_commits():
     assert outcome.status == "committed"
     assert outcome.auto_applied is True
     assert outcome.task_id == "T001"
-    assert task_repo.tasks["T001"].status == TaskStatus.WAITING_QA
+    assert task_repo.tasks["T001"].status == TaskStatus.KIV
     assert task_repo.tasks["T001"].total_updates == 1
 
 

@@ -4,13 +4,37 @@ from enum import Enum
 
 
 class TaskStatus(str, Enum):
-    NOT_STARTED = "Not Started"
     IN_PROGRESS = "In Progress"
-    WAITING_FEEDBACK = "Waiting Feedback"
-    WAITING_QA = "Waiting QA"
-    BLOCKED = "Blocked"
-    READY_FOR_DEPLOYMENT = "Ready for Deployment"
     COMPLETED = "Completed"
+    KIV = "KIV"  # "Keep In View" — on hold / revisit later, this user's catch-all for anything not actively moving
+
+
+class Stakeholder(str, Enum):
+    """The fixed roster of coworkers this user logs work against.
+
+    Deliberately a closed set (not free text) — matches the fixed
+    dropdown-chip UI this user actually uses day to day. AI-extracted
+    stakeholder mentions are validated against this roster (see
+    `Stakeholder.parse`); anything that doesn't match is treated as
+    unknown rather than silently accepting a hallucinated/typo'd name.
+    """
+
+    LIYUAN = "Liyuan"
+    AMMIR = "Ammir"
+    ZIYUE = "Ziyue"
+    ROSEY = "Rosey"
+    JOSHUA = "Joshua"
+    JEREMY = "Jeremy"
+    NICOLE_ONG = "Nicole Ong"
+    EE_XUEN = "Ee Xuen"
+
+    @classmethod
+    def parse(cls, value: str | None) -> Stakeholder | None:
+        """Case-insensitive match against the roster; None if no match."""
+        if not value:
+            return None
+        normalized = value.strip().lower()
+        return next((member for member in cls if member.value.lower() == normalized), None)
 
 
 class ImpactLevel(str, Enum):

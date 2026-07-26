@@ -16,10 +16,11 @@ from app.integrations.telegram.handlers import (
 
 
 def test_parse_status_matches_case_insensitively_and_with_underscores():
-    assert _parse_status("waiting qa") == TaskStatus.WAITING_QA
-    assert _parse_status("waiting_qa") == TaskStatus.WAITING_QA
-    assert _parse_status("Waiting QA") == TaskStatus.WAITING_QA
+    assert _parse_status("kiv") == TaskStatus.KIV
+    assert _parse_status("KIV") == TaskStatus.KIV
+    assert _parse_status("in_progress") == TaskStatus.IN_PROGRESS
     assert _parse_status("In Progress") == TaskStatus.IN_PROGRESS
+    assert _parse_status("completed") == TaskStatus.COMPLETED
 
 
 def test_parse_status_returns_none_for_unknown_value():

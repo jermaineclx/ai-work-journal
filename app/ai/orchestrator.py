@@ -21,8 +21,9 @@ from app.ai.classification import ImpactAgent, ResourceAgent, StatusAgent, TagAg
 from app.ai.extraction import ExtractionAgent
 from app.ai.matching import TaskMatchingAgent
 from app.domain.entities import Task
+from app.domain.enums import Stakeholder
 from app.repositories.memory_repository import MemoryRepository
-from app.schemas.ai import AIPipelineOutput, MatchResult
+from app.schemas.ai import AIPipelineOutput, ExtractionResult, MatchResult
 
 
 class AIOrchestrator:
@@ -47,7 +48,7 @@ class AIOrchestrator:
 
     async def run(self, *, message: str, tasks: list[Task]) -> AIPipelineOutput:
         tasks_by_id = {t.task_id: t for t in tasks}
-        known_stakeholders = sorted({t.stakeholder for t in tasks if t.stakeholder})
+        known_stakeholders = [s.value for s in Stakeholder]
         known_tasks = [t.title for t in tasks]
         known_tags = sorted({tag for t in tasks for tag in t.tags})
 
@@ -62,7 +63,7 @@ class AIOrchestrator:
             known_aliases=known_aliases,
         )
 
-        extraction = await self._apply_learned_aliases(extraction)
+        extraction = await self._normalize_extraction(extraction)
 
         match, match_version = await self._matching.run(message=message, extraction=extraction, tasks=tasks)
 
@@ -108,7 +109,7 @@ class AIOrchestrator:
         rather than leaving the AI to decide whether this is new or
         existing work — there is nothing to match against by definition.
         """
-        known_stakeholders = sorted({t.stakeholder for t in tasks if t.stakeholder})
+        known_stakeholders = [s.value for s in Stakeholder]
         known_tasks = [t.title for t in tasks]
         known_tags = sorted({tag for t in tasks for tag in t.tags})
 
@@ -122,6 +123,8 @@ class AIOrchestrator:
             known_tasks=known_tasks,
             known_aliases=known_aliases,
         )
+
+        extraction = await self._normalize_extraction(extraction)
 
         match = MatchResult(
             matched_task_id=None, confidence=0.0, candidates=[], explanation=["Explicitly created via /new_task."]
@@ -154,8 +157,12 @@ class AIOrchestrator:
             },
         )
 
-    async def _apply_learned_aliases(self, extraction):
-        updates: dict[str, str] = {}
+    async def _normalize_extraction(self, extraction: ExtractionResult) -> ExtractionResult:
+        """Applies learned aliases, then validates the stakeholder against
+        the fixed roster (04_AI_DESIGN.MD §10, Hallucination Prevention) —
+        a name the AI wrote that isn't a known coworker and wasn't resolved
+        by a learned alias gets nulled out rather than trusted verbatim."""
+        updates: dict[str, str | None] = {}
         if extraction.stakeholder:
             canonical = await self._memory.resolve_alias(extraction.stakeholder, "stakeholder")
             if canonical:
@@ -164,4 +171,11 @@ class AIOrchestrator:
             canonical = await self._memory.resolve_alias(extraction.task_title, "task")
             if canonical:
                 updates["task_title"] = canonical
-        return extraction.model_copy(update=updates) if updates else extraction
+        extraction = extraction.model_copy(update=updates) if updates else extraction
+
+        resolved_stakeholder = Stakeholder.parse(extraction.stakeholder)
+        canonical_value = resolved_stakeholder.value if resolved_stakeholder else None
+        if canonical_value != extraction.stakeholder:
+            extraction = extraction.model_copy(update={"stakeholder": canonical_value})
+
+        return extraction

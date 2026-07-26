@@ -17,6 +17,25 @@ from app.utils.time import utcnow_naive
 _TAG_SEP = ", "
 _RESOURCE_SEP = " | "
 
+# Status was previously a 7-value set (Not Started/In Progress/Waiting
+# Feedback/Waiting QA/Blocked/Ready for Deployment/Completed) before this
+# user's fixed 3-value dropdown (In Progress/Completed/KIV). Rows already
+# in the sheet with an old value must still load rather than crash.
+_LEGACY_STATUS_MAP = {
+    "Not Started": TaskStatus.KIV,
+    "Waiting Feedback": TaskStatus.KIV,
+    "Waiting QA": TaskStatus.KIV,
+    "Blocked": TaskStatus.KIV,
+    "Ready for Deployment": TaskStatus.KIV,
+}
+
+
+def _parse_status(value: str) -> TaskStatus:
+    try:
+        return TaskStatus(value)
+    except ValueError:
+        return _LEGACY_STATUS_MAP.get(value, TaskStatus.IN_PROGRESS)
+
 
 def _join(values: list[str], sep: str) -> str:
     return sep.join(v for v in values if v)
@@ -48,7 +67,7 @@ def row_to_task(record: dict[str, Any]) -> Task:
         task_id=str(record["Task ID"]),
         title=str(record["Task Name"]),
         stakeholder=str(record.get("Stakeholder", "")),
-        status=TaskStatus(record.get("Status") or TaskStatus.NOT_STARTED.value),
+        status=_parse_status(record.get("Status") or TaskStatus.IN_PROGRESS.value),
         summary=str(record.get("Summary", "")),
         tags=_split(str(record.get("Tags", "")), _TAG_SEP),
         resources=_split(str(record.get("Resources", "")), _RESOURCE_SEP),
@@ -82,7 +101,7 @@ def row_to_daily_log(record: dict[str, Any]) -> DailyLog:
         date=_parse_date(record.get("Date")).date(),
         original_message=str(record["Original Message"]),
         stakeholder=str(record.get("Stakeholder") or "") or None,
-        status=TaskStatus(status_value) if status_value else None,
+        status=_parse_status(status_value) if status_value else None,
         next_steps=str(record.get("Next Steps") or "") or None,
         resources=_split(str(record.get("Resources", "")), _RESOURCE_SEP),
         tags=_split(str(record.get("Tags", "")), _TAG_SEP),

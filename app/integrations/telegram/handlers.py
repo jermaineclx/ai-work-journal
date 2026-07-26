@@ -20,7 +20,7 @@ from telegram.ext import ContextTypes
 from app.core.container import Container
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
-from app.domain.enums import ImpactLevel, TaskStatus
+from app.domain.enums import ImpactLevel, Stakeholder, TaskStatus
 from app.integrations.telegram.formatting import (
     render_all_logs,
     render_all_tasks,
@@ -56,7 +56,7 @@ HELP_TEXT = (
     "/all_tasks [status] — every task, all columns, e.g. /all_tasks in progress\n"
     "/all_logs [task_id] [date] — every log, optionally filtered, e.g. /all_logs T001 today\n"
     "/edit task|log <id> <field> <value> — directly set any field, e.g. "
-    "/edit task T001 stakeholder Priya Shah\n"
+    "/edit task T001 stakeholder Liyuan\n"
     "/search <query> — search your work history\n"
     "/undo — remove your last log\n"
     "/cancel — cancel whatever I'm currently asking you\n"
@@ -159,10 +159,16 @@ async def _handle_flow_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if flow_type == "new_task" and flow.get("stage") == "awaiting_stakeholder":
+        stakeholder = Stakeholder.parse(message)
+        if stakeholder is None:
+            await update.message.reply_text(
+                f"Unknown name '{message}'. Pick one of: {', '.join(s.value for s in Stakeholder)} (or /cancel)."
+            )
+            return
         container = _container(context)
         _clear_flow(context)
         try:
-            outcome = await _create_task_from_flow(container, flow["ai_output"], flow["message"], message)
+            outcome = await _create_task_from_flow(container, flow["ai_output"], flow["message"], stakeholder.value)
         except Exception:  # noqa: BLE001
             logger.exception("create_task_explicitly_failed")
             await update.message.reply_text("Something went wrong creating that task. Please try again.")
@@ -204,7 +210,7 @@ async def _start_new_task_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     container = _container(context)
     tasks = await container.task_repo.get_all()
     ai_output = await container.orchestrator.describe_new_task(message=description, tasks=tasks)
-    options = await container.task_service.list_known_stakeholders()
+    options = [s.value for s in Stakeholder]
 
     context.user_data["flow"] = {
         "type": "new_task",
@@ -240,7 +246,13 @@ async def _apply_task_field_edit(
         if field == "title":
             task = await container.task_service.edit_title(task_id, value)
         elif field == "stakeholder":
-            task = await container.task_service.edit_stakeholder(task_id, value)
+            stakeholder = Stakeholder.parse(value)
+            if stakeholder is None:
+                await update.message.reply_text(
+                    f"Unknown name '{value}'. Valid: {', '.join(s.value for s in Stakeholder)}"
+                )
+                return
+            task = await container.task_service.edit_stakeholder(task_id, stakeholder.value)
         elif field == "tags":
             task = await container.task_service.edit_tags(task_id, _parse_list(value))
         elif field == "resources":
@@ -272,7 +284,13 @@ async def _apply_log_field_edit(
     container = _container(context)
     try:
         if field == "stakeholder":
-            log = await container.log_service.edit_log_stakeholder(log_id, value)
+            stakeholder = Stakeholder.parse(value)
+            if stakeholder is None:
+                await update.message.reply_text(
+                    f"Unknown name '{value}'. Valid: {', '.join(s.value for s in Stakeholder)}"
+                )
+                return
+            log = await container.log_service.edit_log_stakeholder(log_id, stakeholder.value)
         elif field == "next_steps":
             log = await container.log_service.edit_log_next_steps(log_id, value)
         elif field == "tags":
@@ -551,7 +569,7 @@ EDIT_USAGE = (
     f"Task fields: {', '.join(_TASK_EDITABLE_FIELDS)}\n"
     f"Log fields: {', '.join(_LOG_EDITABLE_FIELDS)}\n\n"
     "Examples:\n"
-    "/edit task T001 stakeholder Priya Shah\n"
+    "/edit task T001 stakeholder Liyuan\n"
     "/edit task T001 status Waiting QA\n"
     "/edit log L0002 next_steps Ship next week\n"
     "/edit log L0002 date 2026-07-26"

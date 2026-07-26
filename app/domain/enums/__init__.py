@@ -1,3 +1,3 @@
-from app.domain.enums.status import DecisionAction, ImpactLevel, TaskStatus
+from app.domain.enums.status import DecisionAction, ImpactLevel, Stakeholder, TaskStatus
 
-__all__ = ["TaskStatus", "ImpactLevel", "DecisionAction"]
+__all__ = ["TaskStatus", "Stakeholder", "ImpactLevel", "DecisionAction"]

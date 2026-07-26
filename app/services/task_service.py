@@ -70,15 +70,3 @@ class TaskService:
         task.resources = resources
         await self._tasks.update(task)
         return task
-
-    async def list_known_stakeholders(self, *, limit: int = 8) -> list[str]:
-        """Distinct stakeholders, most-recently-active task first — used
-        for the /new_task quick-pick keyboard."""
-        tasks = await self.list_tasks()
-        seen: list[str] = []
-        for task in tasks:
-            if task.stakeholder and task.stakeholder not in seen:
-                seen.append(task.stakeholder)
-            if len(seen) >= limit:
-                break
-        return seen

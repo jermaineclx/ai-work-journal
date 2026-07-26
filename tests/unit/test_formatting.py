@@ -60,7 +60,7 @@ def test_render_all_logs_includes_task_title_when_known():
         date=date(2026, 7, 26),
         original_message="Finance approved.",
         stakeholder="Finance",
-        status=TaskStatus.WAITING_QA,
+        status=TaskStatus.KIV,
         next_steps="QA tomorrow",
         impact=ImpactLevel.MEDIUM,
     )

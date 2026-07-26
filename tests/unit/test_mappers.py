@@ -15,7 +15,7 @@ def test_task_round_trips_through_row_mapping():
         task_id="T001",
         title="Settlement Reconciliation",
         stakeholder="Finance",
-        status=TaskStatus.WAITING_QA,
+        status=TaskStatus.KIV,
         summary="Built SQL solution. Finance approved. Awaiting QA.",
         tags=["SQL", "Finance"],
         resources=["DataSuite Dashboard", "https://example.com/query"],
@@ -42,7 +42,7 @@ def test_daily_log_round_trips_through_row_mapping():
         date=date(2026, 7, 26),
         original_message="Finance approved the SQL fix. QA tomorrow.",
         stakeholder="Finance",
-        status=TaskStatus.WAITING_QA,
+        status=TaskStatus.KIV,
         next_steps="QA tomorrow",
         resources=["Settlement SQL"],
         tags=["SQL", "Finance"],
@@ -85,3 +85,45 @@ def test_daily_log_row_mapping_handles_missing_optional_fields():
     assert log.resources == []
     assert log.tags == []
     assert log.impact == ImpactLevel.INFORMATIONAL
+
+
+def test_row_to_task_maps_legacy_status_values_instead_of_crashing():
+    """Rows saved before the status set shrank to In Progress/Completed/KIV
+    (e.g. old 'Waiting QA' rows already sitting in a live sheet) must still
+    load rather than raise ValueError on an unrecognised enum value."""
+    row = {
+        "Task ID": "T001",
+        "Task Name": "Settlement Reconciliation",
+        "Stakeholder": "Liyuan",
+        "Status": "Waiting QA",
+        "Summary": "",
+        "Tags": "",
+        "Resources": "",
+        "Date Created": "2026-07-01",
+        "Last Updated": "2026-07-26",
+        "Total Updates": 1,
+    }
+
+    task = row_to_task(row)
+
+    assert task.status == TaskStatus.KIV
+
+
+def test_row_to_daily_log_maps_legacy_status_values_instead_of_crashing():
+    row = {
+        "Log ID": "L0001",
+        "Date": "2026-07-26",
+        "Task ID": "T001",
+        "Original Message": "Waiting on QA.",
+        "Stakeholder": "Liyuan",
+        "Status": "Ready for Deployment",
+        "Next Steps": "",
+        "Resources": "",
+        "Tags": "",
+        "Impact": "",
+        "Timestamp": "2026-07-26T18:00:00",
+    }
+
+    log = row_to_daily_log(row)
+
+    assert log.status == TaskStatus.KIV
