@@ -1,0 +1,50 @@
+"""Builds the python-telegram-bot Application.
+
+The Application is driven via webhook (`process_update`), not polling —
+see the FastAPI `/webhook/telegram` route. It never runs its own event
+loop; FastAPI/uvicorn owns that.
+"""
+
+from __future__ import annotations
+
+from telegram import Update
+from telegram.ext import Application, ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+
+from app.core.config import Settings
+from app.core.container import Container
+from app.core.logging import get_logger
+from app.integrations.telegram import handlers
+
+logger = get_logger(__name__)
+
+
+def build_application(settings: Settings, container: Container) -> Application:
+    application = ApplicationBuilder().token(settings.telegram_token).build()
+    application.bot_data["container"] = container
+
+    application.add_handler(CommandHandler("help", handlers.cmd_help))
+    application.add_handler(CommandHandler("start", handlers.cmd_help))
+    application.add_handler(CommandHandler("today", handlers.cmd_today))
+    application.add_handler(CommandHandler("summary", handlers.cmd_summary))
+    application.add_handler(CommandHandler("tasks", handlers.cmd_tasks))
+    application.add_handler(CommandHandler("search", handlers.cmd_search))
+    application.add_handler(CommandHandler("undo", handlers.cmd_undo))
+    application.add_handler(CommandHandler("settings", handlers.cmd_settings))
+    application.add_handler(CallbackQueryHandler(handlers.handle_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
+
+    return application
+
+
+async def configure_webhook(application: Application, settings: Settings) -> None:
+    if not settings.telegram_webhook_url:
+        logger.warning(
+            "telegram_webhook_url_not_set", extra={"hint": "Set TELEGRAM_WEBHOOK_URL or configure manually."}
+        )
+        return
+    await application.bot.set_webhook(
+        url=settings.telegram_webhook_url,
+        secret_token=settings.telegram_webhook_secret or None,
+        allowed_updates=Update.ALL_TYPES,
+    )
+    logger.info("telegram_webhook_configured", extra={"url": settings.telegram_webhook_url})

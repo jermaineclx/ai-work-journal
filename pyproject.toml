@@ -1,0 +1,21 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# E501: line length is black's job.
+# B008: FastAPI's `Depends(...)` in a default argument is the documented,
+#       intended pattern, not the mutable-default-arg footgun this rule targets.
+# UP042: keeping `class X(str, Enum)` rather than `StrEnum` — StrEnum's str()
+#        formatting differs (e.g. Google Sheets cell rendering) in ways not
+#        worth revisiting mid-MVP.
+ignore = ["E501", "B008", "UP042"]
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

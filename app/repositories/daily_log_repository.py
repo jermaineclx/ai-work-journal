@@ -1,0 +1,66 @@
+"""Persistence abstraction for Daily Logs.
+
+Daily Logs are append-only: this repository exposes no `update` method,
+so a Daily Log's original message and extracted fields can never be
+silently rewritten. The one exception is `delete`, used exclusively by
+the explicit "undo my last action" feature (FR9 / 01_PRD.md §13,
+Reversible Actions) — a deliberate, user-initiated action, not an
+automatic mutation.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+from app.core.constants import DAILY_LOGS_HEADER, DAILY_LOGS_WORKSHEET_TITLE, LOG_ID_PREFIX
+from app.domain.entities import DailyLog
+from app.integrations.sheets.client import GoogleSheetsClient
+from app.repositories.mappers import daily_log_to_row, row_to_daily_log
+
+
+class DailyLogRepository:
+    def __init__(self, sheets: GoogleSheetsClient, spreadsheet_id: str) -> None:
+        self._sheets = sheets
+        self._spreadsheet_id = spreadsheet_id
+
+    async def get_all(self) -> list[DailyLog]:
+        records = await self._sheets.get_all_records(self._spreadsheet_id, DAILY_LOGS_WORKSHEET_TITLE)
+        return [row_to_daily_log(r) for r in records if r.get("Log ID")]
+
+    async def get_by_task(self, task_id: str) -> list[DailyLog]:
+        return [log for log in await self.get_all() if log.task_id == task_id]
+
+    async def get_by_date(self, target: date) -> list[DailyLog]:
+        return [log for log in await self.get_all() if log.date == target]
+
+    async def get_between(self, start: date, end: date) -> list[DailyLog]:
+        return [log for log in await self.get_all() if start <= log.date <= end]
+
+    async def next_log_id(self) -> str:
+        logs = await self.get_all()
+        max_n = 0
+        for log in logs:
+            suffix = log.log_id.removeprefix(LOG_ID_PREFIX)
+            if suffix.isdigit():
+                max_n = max(max_n, int(suffix))
+        return f"{LOG_ID_PREFIX}{max_n + 1:04d}"
+
+    async def append(self, log: DailyLog) -> DailyLog:
+        await self._sheets.append_row(
+            self._spreadsheet_id,
+            DAILY_LOGS_WORKSHEET_TITLE,
+            [daily_log_to_row(log)[col] for col in DAILY_LOGS_HEADER],
+        )
+        return log
+
+    async def get_latest(self) -> DailyLog | None:
+        logs = await self.get_all()
+        if not logs:
+            return None
+        return max(logs, key=lambda log: log.timestamp)
+
+    async def delete(self, log_id: str) -> bool:
+        """Hard-delete one row. Reserved for the explicit "undo" action."""
+        return await self._sheets.delete_row_by_key(
+            self._spreadsheet_id, DAILY_LOGS_WORKSHEET_TITLE, key_column="Log ID", key_value=log_id
+        )

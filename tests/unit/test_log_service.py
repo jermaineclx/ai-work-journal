@@ -1,0 +1,234 @@
+"""LogService tests using in-memory fakes — no network, no real LLM/Sheets calls.
+
+Exercises the auto-apply, confirm, and undo flows end-to-end at the
+service layer, which is where the Decision Engine's output actually
+turns into persisted state.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from app.core.config import Settings
+from app.domain.entities import DailyLog, Task
+from app.domain.enums import ImpactLevel, TaskStatus
+from app.schemas.ai import (
+    AIPipelineOutput,
+    ExtractionResult,
+    ImpactResult,
+    MatchResult,
+    ResourceResult,
+    StatusResult,
+    SummaryResult,
+    TagResult,
+)
+from app.services.log_service import LogService
+
+
+class FakeTaskRepository:
+    def __init__(self):
+        self.tasks: dict[str, Task] = {}
+
+    async def get_all(self) -> list[Task]:
+        return list(self.tasks.values())
+
+    async def get_by_id(self, task_id: str) -> Task | None:
+        return self.tasks.get(task_id)
+
+    async def require_by_id(self, task_id: str) -> Task:
+        return self.tasks[task_id]
+
+    async def next_task_id(self) -> str:
+        return f"T{len(self.tasks) + 1:03d}"
+
+    async def create(self, task: Task) -> Task:
+        self.tasks[task.task_id] = task
+        return task
+
+    async def update(self, task: Task) -> None:
+        self.tasks[task.task_id] = task
+
+
+class FakeDailyLogRepository:
+    def __init__(self):
+        self.logs: list[DailyLog] = []
+
+    async def next_log_id(self) -> str:
+        return f"L{len(self.logs) + 1:04d}"
+
+    async def append(self, log: DailyLog) -> DailyLog:
+        self.logs.append(log)
+        return log
+
+    async def get_latest(self) -> DailyLog | None:
+        return max(self.logs, key=lambda log: log.timestamp) if self.logs else None
+
+    async def delete(self, log_id: str) -> bool:
+        before = len(self.logs)
+        self.logs = [log for log in self.logs if log.log_id != log_id]
+        return len(self.logs) != before
+
+
+class FakeMemoryRepository:
+    def __init__(self):
+        self.processed: dict[str, str] = {}
+        self.pending: dict[str, str] = {}
+        self.aliases: dict[str, str] = {}
+        self.confidence_records: list[dict] = []
+
+    async def get_processed_request(self, request_id: str) -> str | None:
+        return self.processed.get(request_id)
+
+    async def mark_request_processed(self, request_id: str, result_json: str) -> None:
+        self.processed[request_id] = result_json
+
+    async def save_pending_confirmation(self, request_id: str, user_id: str, payload_json: str) -> None:
+        self.pending[request_id] = payload_json
+
+    async def get_pending_confirmation(self, request_id: str) -> str | None:
+        return self.pending.get(request_id)
+
+    async def delete_pending_confirmation(self, request_id: str) -> None:
+        self.pending.pop(request_id, None)
+
+    async def record_confidence_outcome(self, **kwargs) -> None:
+        self.confidence_records.append(kwargs)
+
+    async def learn_alias(self, alias: str, canonical: str, alias_type: str) -> None:
+        self.aliases[f"{alias_type}:{alias.lower()}"] = canonical
+
+
+class FakeOrchestrator:
+    def __init__(self, output: AIPipelineOutput):
+        self.output = output
+
+    async def run(self, *, message: str, tasks: list[Task]) -> AIPipelineOutput:
+        return self.output
+
+
+class FakeSummaryAgent:
+    async def run(self, *, task_title, current_summary, message, status):
+        return SummaryResult(summary=f"Summary after: {message}"), "generate_summary_v1"
+
+
+class FakeEmbeddingRefresher:
+    def __init__(self):
+        self.refreshed: list[str] = []
+
+    async def refresh(self, task: Task) -> None:
+        self.refreshed.append(task.task_id)
+
+
+def _build_ai_output(
+    *, matched_task_id: str | None, confidence: float, task_title: str = "Settlement Reconciliation"
+) -> AIPipelineOutput:
+    return AIPipelineOutput(
+        extraction=ExtractionResult(task_title=task_title, stakeholder="Finance", extraction_confidence=confidence),
+        match=MatchResult(
+            matched_task_id=matched_task_id,
+            matched_task_title=task_title if matched_task_id else None,
+            confidence=confidence,
+        ),
+        status=StatusResult(status=TaskStatus.WAITING_QA, confidence=confidence),
+        tags=TagResult(tags=["SQL", "Finance"]),
+        resources=ResourceResult(resources=[]),
+        impact=ImpactResult(impact=ImpactLevel.MEDIUM),
+        overall_confidence=confidence,
+    )
+
+
+def _make_service(ai_output: AIPipelineOutput, *, task_repo=None):
+    task_repo = task_repo or FakeTaskRepository()
+    return (
+        LogService(
+            orchestrator=FakeOrchestrator(ai_output),
+            summary_agent=FakeSummaryAgent(),
+            embedding_refresher=FakeEmbeddingRefresher(),
+            task_repo=task_repo,
+            log_repo=FakeDailyLogRepository(),
+            memory=FakeMemoryRepository(),
+            settings=Settings(confidence_auto_apply=0.95, confidence_confirm_lower_bound=0.80),
+        ),
+        task_repo,
+    )
+
+
+@pytest.mark.asyncio
+async def test_high_confidence_new_task_still_requires_confirmation():
+    ai_output = _build_ai_output(matched_task_id=None, confidence=0.99)
+    service, _ = _make_service(ai_output)
+
+    outcome = await service.process_message(request_id="req-1", user_id="u1", message="Built the churn dashboard.")
+
+    assert outcome.status == "pending_confirmation"
+    assert outcome.proposed_task_title == "Settlement Reconciliation"
+
+
+@pytest.mark.asyncio
+async def test_high_confidence_existing_match_auto_commits():
+    task_repo = FakeTaskRepository()
+    existing = Task(
+        task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS
+    )
+    await task_repo.create(existing)
+
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
+    service, task_repo = _make_service(ai_output, task_repo=task_repo)
+
+    outcome = await service.process_message(request_id="req-2", user_id="u1", message="Finance approved. QA tomorrow.")
+
+    assert outcome.status == "committed"
+    assert outcome.auto_applied is True
+    assert outcome.task_id == "T001"
+    assert task_repo.tasks["T001"].status == TaskStatus.WAITING_QA
+    assert task_repo.tasks["T001"].total_updates == 1
+
+
+@pytest.mark.asyncio
+async def test_confirm_new_task_creates_task_and_log():
+    ai_output = _build_ai_output(matched_task_id=None, confidence=0.5)
+    service, task_repo = _make_service(ai_output)
+
+    pending = await service.process_message(request_id="req-3", user_id="u1", message="Started churn dashboard work.")
+    assert pending.status == "pending_confirmation"
+
+    outcome = await service.confirm(request_id="req-3", chosen_task_id=None, create_new=True)
+
+    assert outcome.status == "committed"
+    assert outcome.is_new_task is True
+    assert outcome.auto_applied is False
+    assert len(task_repo.tasks) == 1
+
+
+@pytest.mark.asyncio
+async def test_duplicate_request_id_replays_cached_result():
+    ai_output = _build_ai_output(matched_task_id=None, confidence=0.99)
+    service, task_repo = _make_service(ai_output)
+
+    first = await service.process_message(request_id="req-4", user_id="u1", message="dup test")
+    second = await service.process_message(request_id="req-4", user_id="u1", message="dup test")
+
+    assert first == second
+
+
+@pytest.mark.asyncio
+async def test_undo_last_removes_log_and_decrements_task_counter():
+    task_repo = FakeTaskRepository()
+    existing = Task(
+        task_id="T001",
+        title="Settlement Reconciliation",
+        stakeholder="Finance",
+        status=TaskStatus.IN_PROGRESS,
+        total_updates=1,
+    )
+    await task_repo.create(existing)
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
+    service, task_repo = _make_service(ai_output, task_repo=task_repo)
+
+    await service.process_message(request_id="req-5", user_id="u1", message="Finance approved.")
+    assert task_repo.tasks["T001"].total_updates == 2
+
+    undone = await service.undo_last()
+
+    assert undone is not None
+    assert task_repo.tasks["T001"].total_updates == 1

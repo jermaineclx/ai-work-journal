@@ -1,0 +1,22 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+*.sqlite
+*.sqlite3
+data/*.db
+.pytest_cache/
+.ruff_cache/
+.vscode/
+.idea/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# Google service account credential keys — never commit these.
+ai-work-journal-*.json
+*service-account*.json
+*credentials*.json
