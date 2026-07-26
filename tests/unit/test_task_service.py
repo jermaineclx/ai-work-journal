@@ -67,6 +67,19 @@ async def test_edit_summary_updates_task_and_refreshes_embedding():
 
 
 @pytest.mark.asyncio
+async def test_edit_resources_updates_task_without_refreshing_embedding():
+    """Resources aren't part of the embedding text (title/stakeholder/
+    summary/tags only), so editing them shouldn't trigger a refresh."""
+    service, repo, refresher = _make_service()
+    await repo.create(Task(task_id="T001", title="Title", stakeholder="Finance", status=TaskStatus.IN_PROGRESS))
+
+    task = await service.edit_resources("T001", ["DataSuite Dashboard", "https://example.com/query"])
+
+    assert task.resources == ["DataSuite Dashboard", "https://example.com/query"]
+    assert "T001" not in refresher.refreshed
+
+
+@pytest.mark.asyncio
 async def test_list_known_stakeholders_dedupes_and_orders_by_recency():
     service, repo, _ = _make_service()
     await repo.create(

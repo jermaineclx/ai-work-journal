@@ -22,7 +22,7 @@ from app.core.config import Settings
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.domain.entities import DailyLog, Task
-from app.domain.enums import DecisionAction, TaskStatus
+from app.domain.enums import DecisionAction, ImpactLevel, TaskStatus
 from app.domain.rules.decision import TaskMatchCandidate, decide
 from app.repositories import DailyLogRepository, MemoryRepository, TaskRepository
 from app.schemas.ai import AIPipelineOutput
@@ -199,6 +199,16 @@ class LogService:
         logs = await self._logs.get_by_task(task_id)
         return sorted(logs, key=lambda log: log.timestamp, reverse=True)
 
+    async def search_logs(self, *, task_id: str | None = None, on_date: date | None = None) -> list[DailyLog]:
+        """Most-recent-first, optionally filtered by task and/or date —
+        backs the /all_logs command."""
+        logs = await self._logs.get_all()
+        if task_id is not None:
+            logs = [log for log in logs if log.task_id == task_id]
+        if on_date is not None:
+            logs = [log for log in logs if log.date == on_date]
+        return sorted(logs, key=lambda log: log.timestamp, reverse=True)
+
     async def get_log(self, log_id: str) -> DailyLog:
         return await self._logs.require_by_id(log_id)
 
@@ -223,6 +233,27 @@ class LogService:
     async def edit_log_tags(self, log_id: str, tags: list[str]) -> DailyLog:
         log = await self._logs.require_by_id(log_id)
         log.tags = tags
+        await self._logs.update_extracted_fields(log)
+        return log
+
+    async def edit_log_resources(self, log_id: str, resources: list[str]) -> DailyLog:
+        log = await self._logs.require_by_id(log_id)
+        log.resources = resources
+        await self._logs.update_extracted_fields(log)
+        return log
+
+    async def edit_log_impact(self, log_id: str, impact: ImpactLevel) -> DailyLog:
+        log = await self._logs.require_by_id(log_id)
+        log.impact = impact
+        await self._logs.update_extracted_fields(log)
+        return log
+
+    async def edit_log_date(self, log_id: str, new_date: date) -> DailyLog:
+        """Corrects which day the work happened on — e.g. logging
+        yesterday's update the next morning. Does not touch `timestamp`,
+        which always reflects when the log was actually submitted."""
+        log = await self._logs.require_by_id(log_id)
+        log.date = new_date
         await self._logs.update_extracted_fields(log)
         return log
 

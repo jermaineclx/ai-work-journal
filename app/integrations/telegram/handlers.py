@@ -10,7 +10,9 @@ for a pending flow before falling through to normal log processing.
 
 from __future__ import annotations
 
+import re
 import uuid
+from datetime import date, timedelta
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -18,8 +20,10 @@ from telegram.ext import ContextTypes
 from app.core.container import Container
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
-from app.domain.enums import TaskStatus
+from app.domain.enums import ImpactLevel, TaskStatus
 from app.integrations.telegram.formatting import (
+    render_all_logs,
+    render_all_tasks,
     render_committed,
     render_daily_summary,
     render_log_detail,
@@ -30,6 +34,7 @@ from app.integrations.telegram.formatting import (
 )
 from app.integrations.telegram.keyboards import (
     build_confirmation_keyboard,
+    build_impact_picker_keyboard,
     build_log_detail_keyboard,
     build_log_list_keyboard,
     build_stakeholder_picker,
@@ -47,12 +52,51 @@ HELP_TEXT = (
     "/new_task <description> — explicitly start a new task (I'll ask who it's for)\n"
     "/today — what you've logged today\n"
     "/summary — this week's summary\n"
-    "/tasks — view and edit your tasks and their logs\n"
+    "/tasks — view and edit your tasks and their logs (tap-through)\n"
+    "/all_tasks [status] — every task, all columns, e.g. /all_tasks in progress\n"
+    "/all_logs [task_id] [date] — every log, optionally filtered, e.g. /all_logs T001 today\n"
+    "/edit task|log <id> <field> <value> — directly set any field, e.g. "
+    "/edit task T001 stakeholder Priya Shah\n"
     "/search <query> — search your work history\n"
     "/undo — remove your last log\n"
     "/cancel — cancel whatever I'm currently asking you\n"
     "/help — this message"
 )
+
+_TASK_ID_PATTERN = re.compile(r"^[Tt]\d+$")
+
+_TASK_EDITABLE_FIELDS = ["title", "stakeholder", "status", "tags", "resources", "summary"]
+_LOG_EDITABLE_FIELDS = ["date", "stakeholder", "status", "next_steps", "tags", "resources", "impact"]
+
+
+def _parse_status(value: str) -> TaskStatus | None:
+    normalized = value.strip().lower().replace("_", " ")
+    return next((s for s in TaskStatus if s.value.lower() == normalized), None)
+
+
+def _parse_impact(value: str) -> ImpactLevel | None:
+    normalized = value.strip().lower().replace("_", " ")
+    return next((i for i in ImpactLevel if i.value.lower() == normalized), None)
+
+
+def _parse_list(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parse_iso_date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def _parse_relative_or_iso_date(value: str) -> date | None:
+    lowered = value.strip().lower()
+    if lowered == "today":
+        return date.today()
+    if lowered == "yesterday":
+        return date.today() - timedelta(days=1)
+    return _parse_iso_date(value)
 
 
 def _container(context: ContextTypes.DEFAULT_TYPE) -> Container:
@@ -198,11 +242,21 @@ async def _apply_task_field_edit(
         elif field == "stakeholder":
             task = await container.task_service.edit_stakeholder(task_id, value)
         elif field == "tags":
-            tags = [t.strip() for t in value.split(",") if t.strip()]
-            task = await container.task_service.edit_tags(task_id, tags)
+            task = await container.task_service.edit_tags(task_id, _parse_list(value))
+        elif field == "resources":
+            task = await container.task_service.edit_resources(task_id, _parse_list(value))
         elif field == "summary":
             task = await container.task_service.edit_summary(task_id, value)
+        elif field == "status":
+            status = _parse_status(value)
+            if status is None:
+                await update.message.reply_text(
+                    f"Unknown status '{value}'. Valid: {', '.join(s.value for s in TaskStatus)}"
+                )
+                return
+            task = await container.task_service.edit_status(task_id, status)
         else:
+            await update.message.reply_text(f"Can't edit '{field}' on a task.")
             return
     except NotFoundError:
         await update.message.reply_text("That task no longer exists.")
@@ -222,9 +276,33 @@ async def _apply_log_field_edit(
         elif field == "next_steps":
             log = await container.log_service.edit_log_next_steps(log_id, value)
         elif field == "tags":
-            tags = [t.strip() for t in value.split(",") if t.strip()]
-            log = await container.log_service.edit_log_tags(log_id, tags)
+            log = await container.log_service.edit_log_tags(log_id, _parse_list(value))
+        elif field == "resources":
+            log = await container.log_service.edit_log_resources(log_id, _parse_list(value))
+        elif field == "date":
+            parsed = _parse_iso_date(value)
+            if parsed is None:
+                await update.message.reply_text("Date must be in YYYY-MM-DD format, e.g. 2026-07-27.")
+                return
+            log = await container.log_service.edit_log_date(log_id, parsed)
+        elif field == "status":
+            status = _parse_status(value)
+            if status is None:
+                await update.message.reply_text(
+                    f"Unknown status '{value}'. Valid: {', '.join(s.value for s in TaskStatus)}"
+                )
+                return
+            log = await container.log_service.edit_log_status(log_id, status)
+        elif field == "impact":
+            impact = _parse_impact(value)
+            if impact is None:
+                await update.message.reply_text(
+                    f"Unknown impact '{value}'. Valid: {', '.join(i.value for i in ImpactLevel)}"
+                )
+                return
+            log = await container.log_service.edit_log_impact(log_id, impact)
         else:
+            await update.message.reply_text(f"Can't edit '{field}' on a log.")
             return
         task = await container.task_service.get_task(log.task_id)
     except NotFoundError:
@@ -353,6 +431,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
 
+        if action == "limpact":
+            await query.edit_message_text("Pick an impact level:", reply_markup=build_impact_picker_keyboard(rest))
+            return
+
+        if action == "limpactset":
+            log_id, idx = rest.split(":")
+            impact = list(ImpactLevel)[int(idx)]
+            log = await container.log_service.edit_log_impact(log_id, impact)
+            task = await container.task_service.get_task(log.task_id)
+            await query.edit_message_text(
+                render_log_detail(log, task.title), reply_markup=build_log_detail_keyboard(log.log_id, log.task_id)
+            )
+            return
+
     except NotFoundError:
         await query.edit_message_text("That no longer exists — it may have been removed.")
         return
@@ -408,6 +500,97 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Your tasks:", reply_markup=build_task_list_keyboard(tasks))
 
 
+async def cmd_all_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    container = _container(context)
+    status_filter = None
+    if context.args:
+        status_filter = _parse_status(" ".join(context.args))
+        if status_filter is None:
+            await update.message.reply_text(f"Unknown status filter. Valid: {', '.join(s.value for s in TaskStatus)}")
+            return
+
+    tasks = await container.task_service.list_tasks(status=status_filter)
+    if not tasks:
+        await update.message.reply_text("No tasks match that filter." if status_filter else "No tasks yet.")
+        return
+    for chunk in render_all_tasks(tasks):
+        await update.message.reply_text(chunk)
+
+
+async def cmd_all_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    container = _container(context)
+    task_id_filter: str | None = None
+    date_filter: date | None = None
+
+    for arg in context.args or []:
+        if _TASK_ID_PATTERN.match(arg):
+            task_id_filter = arg.upper()
+            continue
+        parsed_date = _parse_relative_or_iso_date(arg)
+        if parsed_date is not None:
+            date_filter = parsed_date
+            continue
+        await update.message.reply_text(
+            "Usage: /all_logs [task_id] [date]\n"
+            "Examples: /all_logs, /all_logs T001, /all_logs 2026-07-26, /all_logs T001 today"
+        )
+        return
+
+    logs = await container.log_service.search_logs(task_id=task_id_filter, on_date=date_filter)
+    if not logs:
+        await update.message.reply_text("No logs match those filters.")
+        return
+
+    tasks_by_id = {t.task_id: t for t in await container.task_service.list_tasks()}
+    for chunk in render_all_logs(logs, tasks_by_id):
+        await update.message.reply_text(chunk)
+
+
+EDIT_USAGE = (
+    "Usage: /edit task|log <id> <field> <value>\n\n"
+    f"Task fields: {', '.join(_TASK_EDITABLE_FIELDS)}\n"
+    f"Log fields: {', '.join(_LOG_EDITABLE_FIELDS)}\n\n"
+    "Examples:\n"
+    "/edit task T001 stakeholder Priya Shah\n"
+    "/edit task T001 status Waiting QA\n"
+    "/edit log L0002 next_steps Ship next week\n"
+    "/edit log L0002 date 2026-07-26"
+)
+
+
+async def cmd_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args or []
+    if len(args) < 3:
+        await update.message.reply_text(EDIT_USAGE)
+        return
+
+    entity_type, entity_id, field, *value_parts = args
+    entity_type = entity_type.lower()
+    field = field.lower()
+    value = " ".join(value_parts)
+
+    if not value and field not in ("tags", "resources"):
+        await update.message.reply_text("Please provide a value to set.")
+        return
+
+    if entity_type == "task":
+        if field not in _TASK_EDITABLE_FIELDS:
+            await update.message.reply_text(
+                f"Can't edit '{field}' on a task. Editable: {', '.join(_TASK_EDITABLE_FIELDS)}"
+            )
+            return
+        await _apply_task_field_edit(update, context, field, entity_id.upper(), value)
+    elif entity_type == "log":
+        if field not in _LOG_EDITABLE_FIELDS:
+            await update.message.reply_text(
+                f"Can't edit '{field}' on a log. Editable: {', '.join(_LOG_EDITABLE_FIELDS)}"
+            )
+            return
+        await _apply_log_field_edit(update, context, field, entity_id.upper(), value)
+    else:
+        await update.message.reply_text(EDIT_USAGE)
+
+
 async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     container = _container(context)
     query = " ".join(context.args) if context.args else ""
@@ -449,6 +632,9 @@ __all__ = [
     "cmd_today",
     "cmd_summary",
     "cmd_tasks",
+    "cmd_all_tasks",
+    "cmd_all_logs",
+    "cmd_edit",
     "cmd_search",
     "cmd_undo",
     "cmd_settings",

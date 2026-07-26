@@ -5,7 +5,7 @@ from __future__ import annotations
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.domain.entities import DailyLog, Task
-from app.domain.enums import TaskStatus
+from app.domain.enums import ImpactLevel, TaskStatus
 from app.schemas.decision import DecisionSchema
 
 _MAX_TITLE_LEN = 28
@@ -66,7 +66,10 @@ def build_task_detail_keyboard(task_id: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton("🔄 Status", callback_data=f"tstatus:{task_id}"),
                 InlineKeyboardButton("🏷 Tags", callback_data=f"tfield:tags:{task_id}"),
             ],
-            [InlineKeyboardButton("📄 Summary", callback_data=f"tfield:summary:{task_id}")],
+            [
+                InlineKeyboardButton("📄 Summary", callback_data=f"tfield:summary:{task_id}"),
+                InlineKeyboardButton("🔗 Resources", callback_data=f"tfield:resources:{task_id}"),
+            ],
             [InlineKeyboardButton("🕘 View Logs", callback_data=f"tlogs:{task_id}")],
             [InlineKeyboardButton("⬅️ Back to Tasks", callback_data="tlist")],
         ]
@@ -105,9 +108,22 @@ def build_log_detail_keyboard(log_id: str, task_id: str) -> InlineKeyboardMarkup
                 InlineKeyboardButton("➡️ Next Steps", callback_data=f"lfield:next_steps:{log_id}"),
                 InlineKeyboardButton("🏷 Tags", callback_data=f"lfield:tags:{log_id}"),
             ],
+            [
+                InlineKeyboardButton("🔗 Resources", callback_data=f"lfield:resources:{log_id}"),
+                InlineKeyboardButton("📅 Date", callback_data=f"lfield:date:{log_id}"),
+            ],
+            [InlineKeyboardButton("💥 Impact", callback_data=f"limpact:{log_id}")],
             [InlineKeyboardButton("⬅️ Back to Task", callback_data=f"tview:{task_id}")],
         ]
     )
+
+
+def build_impact_picker_keyboard(log_id: str) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(impact.value, callback_data=f"limpactset:{log_id}:{idx}")]
+        for idx, impact in enumerate(ImpactLevel)
+    ]
+    return InlineKeyboardMarkup(rows)
 
 
 def build_stakeholder_picker(options: list[str]) -> InlineKeyboardMarkup:

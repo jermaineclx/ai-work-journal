@@ -65,6 +65,12 @@ class TaskService:
         await self._embeddings.refresh(task)
         return task
 
+    async def edit_resources(self, task_id: str, resources: list[str]) -> Task:
+        task = await self._tasks.require_by_id(task_id)
+        task.resources = resources
+        await self._tasks.update(task)
+        return task
+
     async def list_known_stakeholders(self, *, limit: int = 8) -> list[str]:
         """Distinct stakeholders, most-recently-active task first — used
         for the /new_task quick-pick keyboard."""

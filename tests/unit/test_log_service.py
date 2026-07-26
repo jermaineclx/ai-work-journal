@@ -7,7 +7,7 @@ turns into persisted state.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -65,6 +65,9 @@ class FakeDailyLogRepository:
 
     async def get_latest(self) -> DailyLog | None:
         return max(self.logs, key=lambda log: log.timestamp) if self.logs else None
+
+    async def get_all(self) -> list[DailyLog]:
+        return list(self.logs)
 
     async def get_by_task(self, task_id: str) -> list[DailyLog]:
         return [log for log in self.logs if log.task_id == task_id]
@@ -345,3 +348,60 @@ async def test_list_logs_for_task_returns_most_recent_first():
     logs = await service.list_logs_for_task("T001")
 
     assert [log.original_message for log in logs] == ["Second update", "First update"]
+
+
+@pytest.mark.asyncio
+async def test_edit_log_resources_impact_and_date():
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+    )
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
+    service, _ = _make_service(ai_output, task_repo=task_repo)
+
+    committed = await service.process_message(request_id="req-8", user_id="u1", message="Finance approved.")
+    log_id = committed.log_id
+
+    updated = await service.edit_log_resources(log_id, ["Settlement SQL script"])
+    assert updated.resources == ["Settlement SQL script"]
+
+    updated = await service.edit_log_impact(log_id, ImpactLevel.HIGH)
+    assert updated.impact == ImpactLevel.HIGH
+
+    new_date = date(2026, 1, 15)
+    updated = await service.edit_log_date(log_id, new_date)
+    assert updated.date == new_date
+    # Editing the logged date must never touch when it was actually submitted.
+    assert updated.timestamp == committed_log_timestamp(service, log_id)
+
+
+def committed_log_timestamp(service: LogService, log_id: str):
+    return next(log.timestamp for log in service._logs.logs if log.log_id == log_id)
+
+
+@pytest.mark.asyncio
+async def test_search_logs_filters_by_task_and_date():
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+    )
+    await task_repo.create(
+        Task(task_id="T002", title="Budget Projection", stakeholder="Priya", status=TaskStatus.IN_PROGRESS)
+    )
+    ai_output_t1 = _build_ai_output(matched_task_id="T001", confidence=0.97)
+    service, _ = _make_service(ai_output_t1, task_repo=task_repo)
+
+    await service.process_message(request_id="req-9a", user_id="u1", message="Task 1 update")
+
+    ai_output_t2 = _build_ai_output(matched_task_id="T002", confidence=0.97, task_title="Budget Projection")
+    service._orchestrator.output = ai_output_t2
+    await service.process_message(request_id="req-9b", user_id="u1", message="Task 2 update")
+
+    only_t1 = await service.search_logs(task_id="T001")
+    assert [log.original_message for log in only_t1] == ["Task 1 update"]
+
+    all_logs = await service.search_logs()
+    assert len(all_logs) == 2
+
+    none_for_bad_date = await service.search_logs(on_date=date(2000, 1, 1))
+    assert none_for_bad_date == []

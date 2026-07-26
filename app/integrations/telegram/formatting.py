@@ -111,7 +111,68 @@ def render_log_detail(log: DailyLog, task_title: str) -> str:
         f"Stakeholder: {log.stakeholder or '—'}",
         f"Status: {log.status.value if log.status else '—'}",
         f"Next steps: {log.next_steps or '—'}",
+        f"Resources: {', '.join(log.resources) if log.resources else '—'}",
         f"Tags: {', '.join(log.tags) if log.tags else '—'}",
         f"Impact: {log.impact.value}",
     ]
     return "\n".join(lines)
+
+
+_MAX_MESSAGE_CHARS = 3500
+
+
+def _chunk_blocks(blocks: list[str], *, header: str) -> list[str]:
+    """Group text blocks into Telegram-message-sized chunks (4096 char
+    hard limit; stay well under it). Never used for anything with markup
+    that could be split mid-tag, since these are plain-text renders."""
+    if not blocks:
+        return [header]
+    chunks: list[str] = []
+    current: list[str] = [header]
+    current_len = len(header)
+    for block in blocks:
+        block_len = len(block) + 2
+        if current_len + block_len > _MAX_MESSAGE_CHARS and len(current) > 1:
+            chunks.append("\n\n".join(current))
+            current = [f"{header} (cont'd)"]
+            current_len = len(current[0])
+        current.append(block)
+        current_len += block_len
+    chunks.append("\n\n".join(current))
+    return chunks
+
+
+def render_all_tasks(tasks: list[Task]) -> list[str]:
+    blocks = [
+        (
+            f"[{t.task_id}] {t.title}\n"
+            f"Stakeholder: {t.stakeholder or '—'}\n"
+            f"Status: {t.status.value}\n"
+            f"Tags: {', '.join(t.tags) if t.tags else '—'}\n"
+            f"Resources: {', '.join(t.resources) if t.resources else '—'}\n"
+            f"Created: {t.created_at.date().isoformat()} · Updated: {t.updated_at.date().isoformat()} · "
+            f"Updates: {t.total_updates}\n"
+            f"Summary: {t.summary or '(none yet)'}"
+        )
+        for t in tasks
+    ]
+    return _chunk_blocks(blocks, header=f"{len(tasks)} task(s)")
+
+
+def render_all_logs(logs: list[DailyLog], tasks_by_id: dict[str, Task]) -> list[str]:
+    blocks = []
+    for log in logs:
+        task = tasks_by_id.get(log.task_id)
+        task_label = f"{task.title} ({log.task_id})" if task else log.task_id
+        blocks.append(
+            f"[{log.log_id}] {log.date.isoformat()} — {task_label}\n"
+            f"Message: {log.original_message}\n"
+            f"Stakeholder: {log.stakeholder or '—'}\n"
+            f"Status: {log.status.value if log.status else '—'}\n"
+            f"Next steps: {log.next_steps or '—'}\n"
+            f"Resources: {', '.join(log.resources) if log.resources else '—'}\n"
+            f"Tags: {', '.join(log.tags) if log.tags else '—'}\n"
+            f"Impact: {log.impact.value}\n"
+            f"Logged: {log.timestamp.isoformat()}"
+        )
+    return _chunk_blocks(blocks, header=f"{len(logs)} log(s)")
