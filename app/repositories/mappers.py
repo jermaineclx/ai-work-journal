@@ -16,6 +16,7 @@ from app.utils.time import utcnow_naive
 
 _TAG_SEP = ", "
 _RESOURCE_SEP = " | "
+_STAKEHOLDER_SEP = ", "
 
 # Status was previously a 7-value set (Not Started/In Progress/Waiting
 # Feedback/Waiting QA/Blocked/Ready for Deployment/Completed) before this
@@ -51,7 +52,7 @@ def task_to_row(task: Task) -> dict[str, Any]:
     return {
         "Task ID": task.task_id,
         "Task Name": task.title,
-        "Stakeholder": task.stakeholder,
+        "Stakeholder": _join(task.stakeholder, _STAKEHOLDER_SEP),
         "Status": task.status.value,
         "Tags": _join(task.tags, _TAG_SEP),
         "Resources": _join(task.resources, _RESOURCE_SEP),
@@ -66,7 +67,7 @@ def row_to_task(record: dict[str, Any]) -> Task:
     return Task(
         task_id=str(record["Task ID"]),
         title=str(record["Task Name"]),
-        stakeholder=str(record.get("Stakeholder", "")),
+        stakeholder=_split(str(record.get("Stakeholder", "")), _STAKEHOLDER_SEP),
         status=_parse_status(record.get("Status") or TaskStatus.IN_PROGRESS.value),
         summary=str(record.get("Summary", "")),
         tags=_split(str(record.get("Tags", "")), _TAG_SEP),
@@ -83,7 +84,7 @@ def daily_log_to_row(log: DailyLog) -> dict[str, Any]:
         "Date": log.date.isoformat(),
         "Task ID": log.task_id,
         "Original Message": log.original_message,
-        "Stakeholder": log.stakeholder or "",
+        "Stakeholder": _join(log.stakeholder, _STAKEHOLDER_SEP),
         "Status": log.status.value if log.status else "",
         "Next Steps": log.next_steps or "",
         "Resources": _join(log.resources, _RESOURCE_SEP),
@@ -100,7 +101,7 @@ def row_to_daily_log(record: dict[str, Any]) -> DailyLog:
         task_id=str(record["Task ID"]),
         date=_parse_date(record.get("Date")).date(),
         original_message=str(record["Original Message"]),
-        stakeholder=str(record.get("Stakeholder") or "") or None,
+        stakeholder=_split(str(record.get("Stakeholder", "")), _STAKEHOLDER_SEP),
         status=_parse_status(status_value) if status_value else None,
         next_steps=str(record.get("Next Steps") or "") or None,
         resources=_split(str(record.get("Resources", "")), _RESOURCE_SEP),

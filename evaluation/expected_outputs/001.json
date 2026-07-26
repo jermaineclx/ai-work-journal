@@ -1,5 +1,5 @@
 {
   "task_title_contains": "settlement",
-  "stakeholder": "Finance",
+  "stakeholder": ["Liyuan"],
   "status_hint_contains": "qa"
 }

@@ -1,5 +1,5 @@
 {
   "task_title_contains": "dashboard",
-  "stakeholder": "Product",
+  "stakeholder": ["Ammir", "Rosey"],
   "status_hint_contains": null
 }

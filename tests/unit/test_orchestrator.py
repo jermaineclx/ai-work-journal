@@ -21,8 +21,8 @@ from app.schemas.ai import (
 
 
 class FakeExtractionAgent:
-    def __init__(self, stakeholder: str | None = None):
-        self._stakeholder = stakeholder
+    def __init__(self, stakeholder: list[str] | None = None):
+        self._stakeholder = stakeholder or []
 
     async def run(self, *, message, known_stakeholders, known_tasks, known_aliases):
         return (
@@ -116,7 +116,7 @@ async def test_run_uses_match_confidence_when_matched():
             return MatchResult(matched_task_id="T001", matched_task_title="Existing", confidence=0.9), "v1"
 
     orchestrator = _make_orchestrator(MatchingAgentReturningMatch())
-    existing_task = Task(task_id="T001", title="Existing", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+    existing_task = Task(task_id="T001", title="Existing", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS)
 
     output = await orchestrator.run(message="Finance approved.", tasks=[existing_task])
 
@@ -128,29 +128,44 @@ async def test_run_uses_match_confidence_when_matched():
 async def test_stakeholder_not_on_roster_is_nulled_out():
     """A team/department name (or any hallucinated name) the extraction
     agent might produce should never end up as a Task's stakeholder."""
-    orchestrator = _make_orchestrator(FakeMatchingAgent(), extraction_agent=FakeExtractionAgent(stakeholder="Finance"))
+    orchestrator = _make_orchestrator(
+        FakeMatchingAgent(), extraction_agent=FakeExtractionAgent(stakeholder=["Finance"])
+    )
 
     output = await orchestrator.describe_new_task(message="Finance approved the numbers.", tasks=[])
 
-    assert output.extraction.stakeholder is None
+    assert output.extraction.stakeholder == []
 
 
 @pytest.mark.asyncio
 async def test_stakeholder_on_roster_is_canonicalized():
-    orchestrator = _make_orchestrator(FakeMatchingAgent(), extraction_agent=FakeExtractionAgent(stakeholder="liyuan"))
+    orchestrator = _make_orchestrator(FakeMatchingAgent(), extraction_agent=FakeExtractionAgent(stakeholder=["liyuan"]))
 
     output = await orchestrator.describe_new_task(message="Liyuan flagged an issue.", tasks=[])
 
-    assert output.extraction.stakeholder == "Liyuan"
+    assert output.extraction.stakeholder == ["Liyuan"]
+
+
+@pytest.mark.asyncio
+async def test_multiple_stakeholders_are_individually_validated():
+    """A mix of valid and invalid names: valid ones are kept and
+    canonicalized, invalid ones are dropped — not the whole list."""
+    orchestrator = _make_orchestrator(
+        FakeMatchingAgent(), extraction_agent=FakeExtractionAgent(stakeholder=["liyuan", "Finance", "AMMIR"])
+    )
+
+    output = await orchestrator.describe_new_task(message="Liyuan and Ammir reviewed this.", tasks=[])
+
+    assert output.extraction.stakeholder == ["Liyuan", "Ammir"]
 
 
 @pytest.mark.asyncio
 async def test_learned_alias_resolves_before_roster_check():
     memory = FakeMemoryRepository(aliases={"Li": "Liyuan"})
     orchestrator = _make_orchestrator(
-        FakeMatchingAgent(), extraction_agent=FakeExtractionAgent(stakeholder="Li"), memory=memory
+        FakeMatchingAgent(), extraction_agent=FakeExtractionAgent(stakeholder=["Li"]), memory=memory
     )
 
     output = await orchestrator.describe_new_task(message="Li flagged an issue.", tasks=[])
 
-    assert output.extraction.stakeholder == "Liyuan"
+    assert output.extraction.stakeholder == ["Liyuan"]

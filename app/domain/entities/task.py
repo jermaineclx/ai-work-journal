@@ -18,8 +18,8 @@ from app.utils.time import utcnow_naive
 class Task:
     task_id: str
     title: str
-    stakeholder: str
     status: TaskStatus
+    stakeholder: list[str] = field(default_factory=list)
     summary: str = ""
     tags: list[str] = field(default_factory=list)
     resources: list[str] = field(default_factory=list)
@@ -33,7 +33,14 @@ class Task:
         if not isinstance(self.status, TaskStatus):
             self.status = TaskStatus(self.status)
 
-    def apply_update(self, *, status: TaskStatus | None, new_tags: list[str], new_resources: list[str]) -> None:
+    def apply_update(
+        self,
+        *,
+        status: TaskStatus | None,
+        new_tags: list[str],
+        new_resources: list[str],
+        new_stakeholders: list[str] = (),
+    ) -> None:
         """Merge in the effects of a new confirmed Daily Log."""
         if status is not None:
             self.status = status
@@ -43,5 +50,8 @@ class Task:
         for resource in new_resources:
             if resource not in self.resources:
                 self.resources.append(resource)
+        for stakeholder in new_stakeholders:
+            if stakeholder not in self.stakeholder:
+                self.stakeholder.append(stakeholder)
         self.total_updates += 1
         self.updated_at = utcnow_naive()

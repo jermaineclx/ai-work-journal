@@ -66,7 +66,7 @@ class SearchService:
         query_tokens = _tokenize(query)
         scored_logs: list[tuple[int, SearchResultLog]] = []
         for log in logs:
-            haystack = f"{log.original_message} {log.stakeholder or ''} {' '.join(log.tags)}"
+            haystack = f"{log.original_message} {' '.join(log.stakeholder)} {' '.join(log.tags)}"
             overlap = len(query_tokens & _tokenize(haystack))
             if overlap == 0:
                 continue

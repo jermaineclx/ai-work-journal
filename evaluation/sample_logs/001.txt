@@ -1,1 +1,1 @@
-Finished the settlement SQL today. Finance approved it. QA tomorrow.
+Finished the settlement SQL today. Liyuan approved it. QA tomorrow.

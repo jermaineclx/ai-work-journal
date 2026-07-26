@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from enum import Enum
 
 
@@ -35,6 +36,21 @@ class Stakeholder(str, Enum):
             return None
         normalized = value.strip().lower()
         return next((member for member in cls if member.value.lower() == normalized), None)
+
+    @classmethod
+    def parse_many(cls, values: Iterable[str] | None) -> list[Stakeholder]:
+        """Parse a collection of raw name strings, silently dropping any
+        that don't match the roster (used by the AI hallucination guard —
+        there's no user to show an error to at that point). Order-preserving,
+        de-duplicated."""
+        if not values:
+            return []
+        resolved: list[Stakeholder] = []
+        for value in values:
+            member = cls.parse(value)
+            if member and member not in resolved:
+                resolved.append(member)
+        return resolved
 
 
 class ImpactLevel(str, Enum):

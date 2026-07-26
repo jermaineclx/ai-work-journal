@@ -148,7 +148,7 @@ def _build_ai_output(
     *, matched_task_id: str | None, confidence: float, task_title: str = "Settlement Reconciliation"
 ) -> AIPipelineOutput:
     return AIPipelineOutput(
-        extraction=ExtractionResult(task_title=task_title, stakeholder="Finance", extraction_confidence=confidence),
+        extraction=ExtractionResult(task_title=task_title, stakeholder=["Finance"], extraction_confidence=confidence),
         match=MatchResult(
             matched_task_id=matched_task_id,
             matched_task_title=task_title if matched_task_id else None,
@@ -193,7 +193,7 @@ async def test_high_confidence_new_task_still_requires_confirmation():
 async def test_high_confidence_existing_match_auto_commits():
     task_repo = FakeTaskRepository()
     existing = Task(
-        task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS
+        task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS
     )
     await task_repo.create(existing)
 
@@ -242,7 +242,7 @@ async def test_undo_last_removes_log_and_decrements_task_counter():
     existing = Task(
         task_id="T001",
         title="Settlement Reconciliation",
-        stakeholder="Finance",
+        stakeholder=["Finance"],
         status=TaskStatus.IN_PROGRESS,
         total_updates=1,
     )
@@ -265,7 +265,7 @@ async def test_create_task_explicitly_uses_overridden_stakeholder():
     stakeholder is whatever the user explicitly supplied, not AI-guessed."""
     ai_output = _build_ai_output(matched_task_id=None, confidence=0.4, task_title="Budget Projection")
     overridden = ai_output.model_copy(
-        update={"extraction": ai_output.extraction.model_copy(update={"stakeholder": "Priya Shah"})}
+        update={"extraction": ai_output.extraction.model_copy(update={"stakeholder": ["Priya Shah"]})}
     )
     service, task_repo = _make_service(ai_output)
 
@@ -275,7 +275,7 @@ async def test_create_task_explicitly_uses_overridden_stakeholder():
 
     assert outcome.status == "committed"
     assert outcome.is_new_task is True
-    assert outcome.stakeholder == "Priya Shah"
+    assert outcome.stakeholder == ["Priya Shah"]
     assert len(task_repo.tasks) == 1
 
 
@@ -295,7 +295,7 @@ async def test_create_task_explicitly_is_idempotent_on_request_id():
 async def test_edit_log_fields_update_the_stored_log():
     task_repo = FakeTaskRepository()
     await task_repo.create(
-        Task(task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS)
     )
     ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
     service, task_repo = _make_service(ai_output, task_repo=task_repo)
@@ -303,8 +303,8 @@ async def test_edit_log_fields_update_the_stored_log():
     committed = await service.process_message(request_id="req-6", user_id="u1", message="Finance approved.")
     log_id = committed.log_id
 
-    updated = await service.edit_log_stakeholder(log_id, "Priya Shah")
-    assert updated.stakeholder == "Priya Shah"
+    updated = await service.edit_log_stakeholder(log_id, ["Priya Shah"])
+    assert updated.stakeholder == ["Priya Shah"]
 
     updated = await service.edit_log_status(log_id, TaskStatus.COMPLETED)
     assert updated.status == TaskStatus.COMPLETED
@@ -316,7 +316,7 @@ async def test_edit_log_fields_update_the_stored_log():
     assert updated.tags == ["SQL", "Reporting"]
 
     fetched = await service.get_log(log_id)
-    assert fetched.stakeholder == "Priya Shah"
+    assert fetched.stakeholder == ["Priya Shah"]
     assert fetched.tags == ["SQL", "Reporting"]
 
 
@@ -326,14 +326,14 @@ async def test_edit_log_field_raises_for_unknown_log():
     service, _ = _make_service(ai_output)
 
     with pytest.raises(NotFoundError):
-        await service.edit_log_stakeholder("L9999", "Nobody")
+        await service.edit_log_stakeholder("L9999", ["Nobody"])
 
 
 @pytest.mark.asyncio
 async def test_list_logs_for_task_returns_most_recent_first():
     task_repo = FakeTaskRepository()
     await task_repo.create(
-        Task(task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS)
     )
     ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
     service, _ = _make_service(ai_output, task_repo=task_repo)
@@ -354,7 +354,7 @@ async def test_list_logs_for_task_returns_most_recent_first():
 async def test_edit_log_resources_impact_and_date():
     task_repo = FakeTaskRepository()
     await task_repo.create(
-        Task(task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS)
     )
     ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
     service, _ = _make_service(ai_output, task_repo=task_repo)
@@ -383,10 +383,10 @@ def committed_log_timestamp(service: LogService, log_id: str):
 async def test_search_logs_filters_by_task_and_date():
     task_repo = FakeTaskRepository()
     await task_repo.create(
-        Task(task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS)
     )
     await task_repo.create(
-        Task(task_id="T002", title="Budget Projection", stakeholder="Priya", status=TaskStatus.IN_PROGRESS)
+        Task(task_id="T002", title="Budget Projection", stakeholder=["Priya"], status=TaskStatus.IN_PROGRESS)
     )
     ai_output_t1 = _build_ai_output(matched_task_id="T001", confidence=0.97)
     service, _ = _make_service(ai_output_t1, task_repo=task_repo)

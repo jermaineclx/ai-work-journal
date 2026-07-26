@@ -23,7 +23,7 @@ _PROMPT_PREFIX = "match_task"
 def build_task_embedding_text(task: Task) -> str:
     """Canonical text used to embed a Task — kept identical everywhere
     a task embedding is generated so refreshes stay comparable."""
-    parts = [task.title, task.stakeholder, task.summary, ", ".join(task.tags)]
+    parts = [task.title, ", ".join(task.stakeholder), task.summary, ", ".join(task.tags)]
     return " | ".join(p for p in parts if p)
 
 
@@ -50,7 +50,8 @@ class TaskMatchingAgent:
                 version,
             )
 
-        query_text = " | ".join(p for p in [extraction.task_title, extraction.stakeholder, message] if p)
+        stakeholder_text = ", ".join(extraction.stakeholder) if extraction.stakeholder else None
+        query_text = " | ".join(p for p in [extraction.task_title, stakeholder_text, message] if p)
         query_vector = await self._embeddings.embed(query_text)
         stored_embeddings = await self._memory.get_all_embeddings()
 
@@ -74,7 +75,7 @@ class TaskMatchingAgent:
         ]
 
         candidates_text = "\n".join(
-            f"- [{c.task_id}] {c.title} (stakeholder: {tasks_by_id[c.task_id].stakeholder}, "
+            f"- [{c.task_id}] {c.title} (stakeholder: {', '.join(tasks_by_id[c.task_id].stakeholder) or '—'}, "
             f"similarity: {c.similarity:.0%}, summary: {tasks_by_id[c.task_id].summary or '(none)'})"
             for c in candidates
         )

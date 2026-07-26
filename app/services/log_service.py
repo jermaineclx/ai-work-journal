@@ -212,7 +212,7 @@ class LogService:
     async def get_log(self, log_id: str) -> DailyLog:
         return await self._logs.require_by_id(log_id)
 
-    async def edit_log_stakeholder(self, log_id: str, stakeholder: str) -> DailyLog:
+    async def edit_log_stakeholder(self, log_id: str, stakeholder: list[str]) -> DailyLog:
         log = await self._logs.require_by_id(log_id)
         log.stakeholder = stakeholder
         await self._logs.update_extracted_fields(log)
@@ -274,14 +274,18 @@ class LogService:
             task = Task(
                 task_id=new_id,
                 title=ai_output.extraction.task_title or "Untitled Task",
-                stakeholder=ai_output.extraction.stakeholder or "",
                 status=status,
             )
             summary_result, _ = await self._summary_agent.run(
                 task_title=task.title, current_summary="", message=message, status=status
             )
             task.summary = summary_result.summary
-            task.apply_update(status=status, new_tags=ai_output.tags.tags, new_resources=ai_output.resources.resources)
+            task.apply_update(
+                status=status,
+                new_tags=ai_output.tags.tags,
+                new_resources=ai_output.resources.resources,
+                new_stakeholders=ai_output.extraction.stakeholder,
+            )
             await self._tasks.create(task)
         else:
             if not task_id:
@@ -291,7 +295,12 @@ class LogService:
                 task_title=task.title, current_summary=task.summary, message=message, status=status
             )
             task.summary = summary_result.summary
-            task.apply_update(status=status, new_tags=ai_output.tags.tags, new_resources=ai_output.resources.resources)
+            task.apply_update(
+                status=status,
+                new_tags=ai_output.tags.tags,
+                new_resources=ai_output.resources.resources,
+                new_stakeholders=ai_output.extraction.stakeholder,
+            )
             await self._tasks.update(task)
 
         await self._embeddings.refresh(task)

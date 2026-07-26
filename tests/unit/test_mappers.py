@@ -14,7 +14,7 @@ def test_task_round_trips_through_row_mapping():
     task = Task(
         task_id="T001",
         title="Settlement Reconciliation",
-        stakeholder="Finance",
+        stakeholder=["Finance"],
         status=TaskStatus.KIV,
         summary="Built SQL solution. Finance approved. Awaiting QA.",
         tags=["SQL", "Finance"],
@@ -41,7 +41,7 @@ def test_daily_log_round_trips_through_row_mapping():
         task_id="T001",
         date=date(2026, 7, 26),
         original_message="Finance approved the SQL fix. QA tomorrow.",
-        stakeholder="Finance",
+        stakeholder=["Finance"],
         status=TaskStatus.KIV,
         next_steps="QA tomorrow",
         resources=["Settlement SQL"],
@@ -79,7 +79,7 @@ def test_daily_log_row_mapping_handles_missing_optional_fields():
         "Timestamp": "2026-07-27T09:00:00",
     }
     log = row_to_daily_log(row)
-    assert log.stakeholder is None
+    assert log.stakeholder == []
     assert log.status is None
     assert log.next_steps is None
     assert log.resources == []

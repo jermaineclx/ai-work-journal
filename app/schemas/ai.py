@@ -17,7 +17,7 @@ class ExtractionResult(BaseModel):
     """Output of the Extraction Agent."""
 
     task_title: str | None = Field(default=None, description="Best-guess name for the workstream")
-    stakeholder: str | None = None
+    stakeholder: list[str] = Field(default_factory=list, description="Zero or more people mentioned")
     status_hint: str | None = Field(default=None, description="Raw status language before classification")
     next_steps: str | None = None
     resource_mentions: list[str] = Field(default_factory=list)

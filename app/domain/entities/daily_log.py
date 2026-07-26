@@ -21,7 +21,7 @@ class DailyLog:
     task_id: str
     date: date
     original_message: str
-    stakeholder: str | None
+    stakeholder: list[str]
     status: TaskStatus | None
     next_steps: str | None
     resources: list[str] = field(default_factory=list)

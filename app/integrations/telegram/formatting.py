@@ -10,12 +10,16 @@ from app.schemas.search import SearchResponse
 from app.schemas.summary import DailySummary, WeeklySummary
 
 
+def _fmt_stakeholders(names: list[str]) -> str:
+    return ", ".join(names) if names else "—"
+
+
 def render_committed(outcome: LogOutcome) -> str:
     lines = ["✅ Logged successfully" if not outcome.is_new_task else "🆕 New task created"]
     lines.append("")
     lines.append(f"Task: {outcome.task_title}")
     if outcome.stakeholder:
-        lines.append(f"Stakeholder: {outcome.stakeholder}")
+        lines.append(f"Stakeholder: {_fmt_stakeholders(outcome.stakeholder)}")
     lines.append(f"Status: {outcome.task_status.value if outcome.task_status else '—'}")
     if outcome.tags:
         lines.append(f"Tags: {', '.join(outcome.tags)}")
@@ -88,7 +92,7 @@ def render_task_detail(task: Task) -> str:
     lines = [
         f"📋 {task.title}",
         "",
-        f"Stakeholder: {task.stakeholder or '—'}",
+        f"Stakeholder: {_fmt_stakeholders(task.stakeholder)}",
         f"Status: {task.status.value}",
         f"Tags: {', '.join(task.tags) if task.tags else '—'}",
         f"Resources: {', '.join(task.resources) if task.resources else '—'}",
@@ -108,7 +112,7 @@ def render_log_detail(log: DailyLog, task_title: str) -> str:
         f"Date: {log.date.isoformat()}",
         f"Message: {log.original_message}",
         "",
-        f"Stakeholder: {log.stakeholder or '—'}",
+        f"Stakeholder: {_fmt_stakeholders(log.stakeholder)}",
         f"Status: {log.status.value if log.status else '—'}",
         f"Next steps: {log.next_steps or '—'}",
         f"Resources: {', '.join(log.resources) if log.resources else '—'}",
@@ -146,7 +150,7 @@ def render_all_tasks(tasks: list[Task]) -> list[str]:
     blocks = [
         (
             f"[{t.task_id}] {t.title}\n"
-            f"Stakeholder: {t.stakeholder or '—'}\n"
+            f"Stakeholder: {_fmt_stakeholders(t.stakeholder)}\n"
             f"Status: {t.status.value}\n"
             f"Tags: {', '.join(t.tags) if t.tags else '—'}\n"
             f"Resources: {', '.join(t.resources) if t.resources else '—'}\n"
@@ -167,7 +171,7 @@ def render_all_logs(logs: list[DailyLog], tasks_by_id: dict[str, Task]) -> list[
         blocks.append(
             f"[{log.log_id}] {log.date.isoformat()} — {task_label}\n"
             f"Message: {log.original_message}\n"
-            f"Stakeholder: {log.stakeholder or '—'}\n"
+            f"Stakeholder: {_fmt_stakeholders(log.stakeholder)}\n"
             f"Status: {log.status.value if log.status else '—'}\n"
             f"Next steps: {log.next_steps or '—'}\n"
             f"Resources: {', '.join(log.resources) if log.resources else '—'}\n"

@@ -12,7 +12,7 @@ from app.domain.enums import TaskStatus
 class SearchResultTask(BaseModel):
     task_id: str
     title: str
-    stakeholder: str
+    stakeholder: list[str]
     status: TaskStatus
     summary: str
     similarity: float

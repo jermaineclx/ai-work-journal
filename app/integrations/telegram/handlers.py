@@ -99,6 +99,24 @@ def _parse_relative_or_iso_date(value: str) -> date | None:
     return _parse_iso_date(value)
 
 
+def _parse_stakeholders(value: str) -> tuple[list[str], list[str]]:
+    """Parse a ", "-delimited list of names (e.g. "Liyuan, Ammir, Rosey").
+
+    Returns (valid canonical names, raw names that didn't match the
+    roster) so the caller can show a helpful error listing exactly which
+    name(s) weren't recognized.
+    """
+    valid: list[str] = []
+    invalid: list[str] = []
+    for part in _parse_list(value):
+        member = Stakeholder.parse(part)
+        if member is None:
+            invalid.append(part)
+        elif member.value not in valid:
+            valid.append(member.value)
+    return valid, invalid
+
+
 def _container(context: ContextTypes.DEFAULT_TYPE) -> Container:
     return context.application.bot_data["container"]
 
@@ -159,16 +177,18 @@ async def _handle_flow_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if flow_type == "new_task" and flow.get("stage") == "awaiting_stakeholder":
-        stakeholder = Stakeholder.parse(message)
-        if stakeholder is None:
+        valid, invalid = _parse_stakeholders(message)
+        if invalid or not valid:
+            unrecognized = ", ".join(invalid) if invalid else message
             await update.message.reply_text(
-                f"Unknown name '{message}'. Pick one of: {', '.join(s.value for s in Stakeholder)} (or /cancel)."
+                f"Didn't recognize '{unrecognized}'. Pick one or more of: "
+                f"{', '.join(s.value for s in Stakeholder)} (comma-separated, or /cancel)."
             )
             return
         container = _container(context)
         _clear_flow(context)
         try:
-            outcome = await _create_task_from_flow(container, flow["ai_output"], flow["message"], stakeholder.value)
+            outcome = await _create_task_from_flow(container, flow["ai_output"], flow["message"], valid)
         except Exception:  # noqa: BLE001
             logger.exception("create_task_explicitly_failed")
             await update.message.reply_text("Something went wrong creating that task. Please try again.")
@@ -221,13 +241,17 @@ async def _start_new_task_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["ntpick_options"] = options
 
     title = ai_output.extraction.task_title or "Untitled Task"
-    text = f'Got it — draft task: "{title}"\n\nWho\'s this for? Pick below, or just type a name.'
+    text = (
+        f'Got it — draft task: "{title}"\n\n'
+        "Who's this for? Pick one below, or type one or more names separated by commas "
+        "(e.g. Liyuan, Ammir)."
+    )
     keyboard = build_stakeholder_picker(options) if options else None
     await update.message.reply_text(text, reply_markup=keyboard)
 
 
-async def _create_task_from_flow(container: Container, ai_output, description: str, stakeholder: str):
-    updated_extraction = ai_output.extraction.model_copy(update={"stakeholder": stakeholder})
+async def _create_task_from_flow(container: Container, ai_output, description: str, stakeholders: list[str]):
+    updated_extraction = ai_output.extraction.model_copy(update={"stakeholder": stakeholders})
     ai_output = ai_output.model_copy(update={"extraction": updated_extraction})
     request_id = f"tg-newtask-{uuid.uuid4().hex[:16]}"
     return await container.log_service.create_task_explicitly(
@@ -246,13 +270,15 @@ async def _apply_task_field_edit(
         if field == "title":
             task = await container.task_service.edit_title(task_id, value)
         elif field == "stakeholder":
-            stakeholder = Stakeholder.parse(value)
-            if stakeholder is None:
+            valid, invalid = _parse_stakeholders(value)
+            if invalid or not valid:
+                unrecognized = ", ".join(invalid) if invalid else value
                 await update.message.reply_text(
-                    f"Unknown name '{value}'. Valid: {', '.join(s.value for s in Stakeholder)}"
+                    f"Didn't recognize '{unrecognized}'. Valid: {', '.join(s.value for s in Stakeholder)} "
+                    "(comma-separated for multiple)."
                 )
                 return
-            task = await container.task_service.edit_stakeholder(task_id, stakeholder.value)
+            task = await container.task_service.edit_stakeholder(task_id, valid)
         elif field == "tags":
             task = await container.task_service.edit_tags(task_id, _parse_list(value))
         elif field == "resources":
@@ -284,13 +310,15 @@ async def _apply_log_field_edit(
     container = _container(context)
     try:
         if field == "stakeholder":
-            stakeholder = Stakeholder.parse(value)
-            if stakeholder is None:
+            valid, invalid = _parse_stakeholders(value)
+            if invalid or not valid:
+                unrecognized = ", ".join(invalid) if invalid else value
                 await update.message.reply_text(
-                    f"Unknown name '{value}'. Valid: {', '.join(s.value for s in Stakeholder)}"
+                    f"Didn't recognize '{unrecognized}'. Valid: {', '.join(s.value for s in Stakeholder)} "
+                    "(comma-separated for multiple)."
                 )
                 return
-            log = await container.log_service.edit_log_stakeholder(log_id, stakeholder.value)
+            log = await container.log_service.edit_log_stakeholder(log_id, valid)
         elif field == "next_steps":
             log = await container.log_service.edit_log_next_steps(log_id, value)
         elif field == "tags":
@@ -480,7 +508,7 @@ async def _handle_ntpick(query, context: ContextTypes.DEFAULT_TYPE, container: C
         return
     stakeholder = options[int(rest)]
     _clear_flow(context)
-    outcome = await _create_task_from_flow(container, flow["ai_output"], flow["message"], stakeholder)
+    outcome = await _create_task_from_flow(container, flow["ai_output"], flow["message"], [stakeholder])
     await query.edit_message_text(render_committed(outcome))
 
 
@@ -568,9 +596,10 @@ EDIT_USAGE = (
     "Usage: /edit task|log <id> <field> <value>\n\n"
     f"Task fields: {', '.join(_TASK_EDITABLE_FIELDS)}\n"
     f"Log fields: {', '.join(_LOG_EDITABLE_FIELDS)}\n\n"
+    "Stakeholder accepts multiple names, comma-separated.\n\n"
     "Examples:\n"
-    "/edit task T001 stakeholder Liyuan\n"
-    "/edit task T001 status Waiting QA\n"
+    "/edit task T001 stakeholder Liyuan, Ammir\n"
+    "/edit task T001 status KIV\n"
     "/edit log L0002 next_steps Ship next week\n"
     "/edit log L0002 date 2026-07-26"
 )

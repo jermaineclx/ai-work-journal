@@ -33,7 +33,7 @@ class TaskService:
         await self._tasks.update(task)
         return task
 
-    async def edit_stakeholder(self, task_id: str, stakeholder: str) -> Task:
+    async def edit_stakeholder(self, task_id: str, stakeholder: list[str]) -> Task:
         task = await self._tasks.require_by_id(task_id)
         task.stakeholder = stakeholder
         await self._tasks.update(task)

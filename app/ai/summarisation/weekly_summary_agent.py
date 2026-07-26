@@ -18,7 +18,8 @@ class WeeklySummaryAgent:
         version = latest_version(_PROMPT_PREFIX)
         template = load_prompt(version)
         tasks_text = (
-            "\n".join(f"- {t.title} ({t.status.value}, stakeholder: {t.stakeholder})" for t in tasks) or "(none)"
+            "\n".join(f"- {t.title} ({t.status.value}, stakeholder: {', '.join(t.stakeholder) or '—'})" for t in tasks)
+            or "(none)"
         )
         logs_text = (
             "\n".join(f"- {log.date.isoformat()} [{log.task_id}] {log.original_message}" for log in logs) or "(none)"

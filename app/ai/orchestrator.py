@@ -158,24 +158,24 @@ class AIOrchestrator:
         )
 
     async def _normalize_extraction(self, extraction: ExtractionResult) -> ExtractionResult:
-        """Applies learned aliases, then validates the stakeholder against
-        the fixed roster (04_AI_DESIGN.MD §10, Hallucination Prevention) —
-        a name the AI wrote that isn't a known coworker and wasn't resolved
-        by a learned alias gets nulled out rather than trusted verbatim."""
-        updates: dict[str, str | None] = {}
-        if extraction.stakeholder:
-            canonical = await self._memory.resolve_alias(extraction.stakeholder, "stakeholder")
-            if canonical:
-                updates["stakeholder"] = canonical
+        """Applies learned aliases, then validates every extracted
+        stakeholder name against the fixed roster (04_AI_DESIGN.MD §10,
+        Hallucination Prevention) — any name that isn't a known coworker
+        and wasn't resolved by a learned alias gets dropped rather than
+        trusted verbatim."""
+        resolved_names: list[str] = []
+        for name in extraction.stakeholder:
+            canonical = await self._memory.resolve_alias(name, "stakeholder")
+            resolved_names.append(canonical or name)
+        valid_stakeholders = [s.value for s in Stakeholder.parse_many(resolved_names)]
+
+        updates: dict[str, object] = {}
+        if valid_stakeholders != extraction.stakeholder:
+            updates["stakeholder"] = valid_stakeholders
+
         if extraction.task_title:
             canonical = await self._memory.resolve_alias(extraction.task_title, "task")
             if canonical:
                 updates["task_title"] = canonical
-        extraction = extraction.model_copy(update=updates) if updates else extraction
 
-        resolved_stakeholder = Stakeholder.parse(extraction.stakeholder)
-        canonical_value = resolved_stakeholder.value if resolved_stakeholder else None
-        if canonical_value != extraction.stakeholder:
-            extraction = extraction.model_copy(update={"stakeholder": canonical_value})
-
-        return extraction
+        return extraction.model_copy(update=updates) if updates else extraction

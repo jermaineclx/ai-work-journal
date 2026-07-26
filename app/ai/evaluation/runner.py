@@ -43,6 +43,14 @@ def _check_equals(actual: str | None, expected: str | None) -> tuple[bool, str]:
     return False, f"expected '{expected}', got '{actual}'"
 
 
+def _check_list_equals(actual: list[str], expected: list[str] | None) -> tuple[bool, str]:
+    if expected is None:
+        return True, "ok (no expectation)"
+    if set(actual) == set(expected):
+        return True, "ok"
+    return False, f"expected {expected}, got {actual}"
+
+
 async def run_evaluation() -> list[EvalResult]:
     agent = ExtractionAgent(get_llm_provider())
     sample_dir = _EVAL_DIR / "sample_logs"
@@ -67,7 +75,7 @@ async def run_evaluation() -> list[EvalResult]:
         details.append(f"task_title: {detail}")
         passed &= ok
 
-        ok, detail = _check_equals(extraction.stakeholder, expected.get("stakeholder"))
+        ok, detail = _check_list_equals(extraction.stakeholder, expected.get("stakeholder"))
         details.append(f"stakeholder: {detail}")
         passed &= ok
 
