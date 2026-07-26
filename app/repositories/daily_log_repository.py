@@ -1,11 +1,13 @@
 """Persistence abstraction for Daily Logs.
 
-Daily Logs are append-only: this repository exposes no `update` method,
-so a Daily Log's original message and extracted fields can never be
-silently rewritten. The one exception is `delete`, used exclusively by
-the explicit "undo my last action" feature (FR9 / 01_PRD.md §13,
-Reversible Actions) — a deliberate, user-initiated action, not an
-automatic mutation.
+Daily Logs are immutable in one specific sense: the original message,
+timestamp and log/task IDs can never change. `update_extracted_fields`
+lets a user correct the AI-derived fields (stakeholder/status/next
+steps/tags) on a past log — an explicit, user-initiated correction, not
+automatic AI rewriting — per 01_PRD.md §11.2 ("Corrections should modify
+extracted fields while preserving: original message, submission
+timestamp, historical context"). `delete` is reserved for the narrower
+"undo my last action" feature (FR9 / 01_PRD.md §13).
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from __future__ import annotations
 from datetime import date
 
 from app.core.constants import DAILY_LOGS_HEADER, DAILY_LOGS_WORKSHEET_TITLE, LOG_ID_PREFIX
+from app.core.exceptions import NotFoundError
 from app.domain.entities import DailyLog
 from app.integrations.sheets.client import GoogleSheetsClient
 from app.repositories.mappers import daily_log_to_row, row_to_daily_log
@@ -58,6 +61,33 @@ class DailyLogRepository:
         if not logs:
             return None
         return max(logs, key=lambda log: log.timestamp)
+
+    async def get_by_id(self, log_id: str) -> DailyLog | None:
+        for log in await self.get_all():
+            if log.log_id == log_id:
+                return log
+        return None
+
+    async def require_by_id(self, log_id: str) -> DailyLog:
+        log = await self.get_by_id(log_id)
+        if log is None:
+            raise NotFoundError(f"Daily Log '{log_id}' not found")
+        return log
+
+    async def update_extracted_fields(self, log: DailyLog) -> None:
+        """Overwrite a log's extracted fields. `log.original_message`,
+        `log.timestamp`, `log.log_id` and `log.task_id` must be unchanged
+        from what's already stored — only the AI-derived fields should differ."""
+        updated = await self._sheets.update_row_by_key(
+            self._spreadsheet_id,
+            DAILY_LOGS_WORKSHEET_TITLE,
+            key_column="Log ID",
+            key_value=log.log_id,
+            header=DAILY_LOGS_HEADER,
+            row_values=daily_log_to_row(log),
+        )
+        if not updated:
+            raise NotFoundError(f"Daily Log '{log.log_id}' not found when updating")
 
     async def delete(self, log_id: str) -> bool:
         """Hard-delete one row. Reserved for the explicit "undo" action."""

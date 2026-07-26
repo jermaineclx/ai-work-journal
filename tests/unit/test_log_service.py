@@ -7,9 +7,12 @@ turns into persisted state.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from app.core.config import Settings
+from app.core.exceptions import NotFoundError
 from app.domain.entities import DailyLog, Task
 from app.domain.enums import ImpactLevel, TaskStatus
 from app.schemas.ai import (
@@ -62,6 +65,25 @@ class FakeDailyLogRepository:
 
     async def get_latest(self) -> DailyLog | None:
         return max(self.logs, key=lambda log: log.timestamp) if self.logs else None
+
+    async def get_by_task(self, task_id: str) -> list[DailyLog]:
+        return [log for log in self.logs if log.task_id == task_id]
+
+    async def get_by_id(self, log_id: str) -> DailyLog | None:
+        return next((log for log in self.logs if log.log_id == log_id), None)
+
+    async def require_by_id(self, log_id: str) -> DailyLog:
+        log = await self.get_by_id(log_id)
+        if log is None:
+            raise NotFoundError(f"Daily Log '{log_id}' not found")
+        return log
+
+    async def update_extracted_fields(self, log: DailyLog) -> None:
+        for i, existing in enumerate(self.logs):
+            if existing.log_id == log.log_id:
+                self.logs[i] = log
+                return
+        raise NotFoundError(f"Daily Log '{log.log_id}' not found when updating")
 
     async def delete(self, log_id: str) -> bool:
         before = len(self.logs)
@@ -232,3 +254,94 @@ async def test_undo_last_removes_log_and_decrements_task_counter():
 
     assert undone is not None
     assert task_repo.tasks["T001"].total_updates == 1
+
+
+@pytest.mark.asyncio
+async def test_create_task_explicitly_uses_overridden_stakeholder():
+    """Mirrors the /new_task flow: extraction derives the title, but the
+    stakeholder is whatever the user explicitly supplied, not AI-guessed."""
+    ai_output = _build_ai_output(matched_task_id=None, confidence=0.4, task_title="Budget Projection")
+    overridden = ai_output.model_copy(
+        update={"extraction": ai_output.extraction.model_copy(update={"stakeholder": "Priya Shah"})}
+    )
+    service, task_repo = _make_service(ai_output)
+
+    outcome = await service.create_task_explicitly(
+        request_id="req-new-task-1", message="Worked on the budget projection.", ai_output=overridden
+    )
+
+    assert outcome.status == "committed"
+    assert outcome.is_new_task is True
+    assert outcome.stakeholder == "Priya Shah"
+    assert len(task_repo.tasks) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_task_explicitly_is_idempotent_on_request_id():
+    ai_output = _build_ai_output(matched_task_id=None, confidence=0.4)
+    service, task_repo = _make_service(ai_output)
+
+    first = await service.create_task_explicitly(request_id="req-new-task-2", message="msg", ai_output=ai_output)
+    second = await service.create_task_explicitly(request_id="req-new-task-2", message="msg", ai_output=ai_output)
+
+    assert first == second
+    assert len(task_repo.tasks) == 1
+
+
+@pytest.mark.asyncio
+async def test_edit_log_fields_update_the_stored_log():
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+    )
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
+    service, task_repo = _make_service(ai_output, task_repo=task_repo)
+
+    committed = await service.process_message(request_id="req-6", user_id="u1", message="Finance approved.")
+    log_id = committed.log_id
+
+    updated = await service.edit_log_stakeholder(log_id, "Priya Shah")
+    assert updated.stakeholder == "Priya Shah"
+
+    updated = await service.edit_log_status(log_id, TaskStatus.COMPLETED)
+    assert updated.status == TaskStatus.COMPLETED
+
+    updated = await service.edit_log_next_steps(log_id, "Ship next week")
+    assert updated.next_steps == "Ship next week"
+
+    updated = await service.edit_log_tags(log_id, ["SQL", "Reporting"])
+    assert updated.tags == ["SQL", "Reporting"]
+
+    fetched = await service.get_log(log_id)
+    assert fetched.stakeholder == "Priya Shah"
+    assert fetched.tags == ["SQL", "Reporting"]
+
+
+@pytest.mark.asyncio
+async def test_edit_log_field_raises_for_unknown_log():
+    ai_output = _build_ai_output(matched_task_id=None, confidence=0.4)
+    service, _ = _make_service(ai_output)
+
+    with pytest.raises(NotFoundError):
+        await service.edit_log_stakeholder("L9999", "Nobody")
+
+
+@pytest.mark.asyncio
+async def test_list_logs_for_task_returns_most_recent_first():
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder="Finance", status=TaskStatus.IN_PROGRESS)
+    )
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
+    service, _ = _make_service(ai_output, task_repo=task_repo)
+
+    await service.process_message(request_id="req-7a", user_id="u1", message="First update")
+    await service.process_message(request_id="req-7b", user_id="u1", message="Second update")
+    # Pin timestamps explicitly so ordering doesn't depend on how fast the
+    # two awaited calls above actually ran.
+    service._logs.logs[0].timestamp = datetime(2026, 1, 1, 10, 0, 0)
+    service._logs.logs[1].timestamp = datetime(2026, 1, 1, 11, 0, 0)
+
+    logs = await service.list_logs_for_task("T001")
+
+    assert [log.original_message for log in logs] == ["Second update", "First update"]

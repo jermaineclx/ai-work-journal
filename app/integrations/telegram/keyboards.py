@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.domain.entities import DailyLog, Task
+from app.domain.enums import TaskStatus
 from app.schemas.decision import DecisionSchema
 
 _MAX_TITLE_LEN = 28
 
 
-def _short(title: str) -> str:
-    return title if len(title) <= _MAX_TITLE_LEN else title[: _MAX_TITLE_LEN - 1] + "…"
+def _short(text: str, max_len: int = _MAX_TITLE_LEN) -> str:
+    return text if len(text) <= max_len else text[: max_len - 1] + "…"
 
 
 def build_confirmation_keyboard(request_id: str, decision: DecisionSchema) -> InlineKeyboardMarkup:
@@ -42,4 +44,73 @@ def build_confirmation_keyboard(request_id: str, decision: DecisionSchema) -> In
     rows.append([InlineKeyboardButton("🆕 Create New", callback_data=f"new:{request_id}")])
     rows.append([InlineKeyboardButton("✖️ Cancel", callback_data=f"cancel:{request_id}")])
 
+    return InlineKeyboardMarkup(rows)
+
+
+def build_task_list_keyboard(tasks: list[Task]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(f"{_short(t.title, 22)} ({t.status.value})", callback_data=f"tview:{t.task_id}")]
+        for t in tasks[:25]
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def build_task_detail_keyboard(task_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✏️ Title", callback_data=f"tfield:title:{task_id}"),
+                InlineKeyboardButton("👤 Stakeholder", callback_data=f"tfield:stakeholder:{task_id}"),
+            ],
+            [
+                InlineKeyboardButton("🔄 Status", callback_data=f"tstatus:{task_id}"),
+                InlineKeyboardButton("🏷 Tags", callback_data=f"tfield:tags:{task_id}"),
+            ],
+            [InlineKeyboardButton("📄 Summary", callback_data=f"tfield:summary:{task_id}")],
+            [InlineKeyboardButton("🕘 View Logs", callback_data=f"tlogs:{task_id}")],
+            [InlineKeyboardButton("⬅️ Back to Tasks", callback_data="tlist")],
+        ]
+    )
+
+
+def build_status_picker_keyboard(action_prefix: str, entity_id: str) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(status.value, callback_data=f"{action_prefix}:{entity_id}:{idx}")]
+        for idx, status in enumerate(TaskStatus)
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def build_log_list_keyboard(logs: list[DailyLog], task_id: str) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                f"{log.date.isoformat()} — {_short(log.original_message, 30)}", callback_data=f"lview:{log.log_id}"
+            )
+        ]
+        for log in logs[:25]
+    ]
+    rows.append([InlineKeyboardButton("⬅️ Back to Task", callback_data=f"tview:{task_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_log_detail_keyboard(log_id: str, task_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("👤 Stakeholder", callback_data=f"lfield:stakeholder:{log_id}"),
+                InlineKeyboardButton("🔄 Status", callback_data=f"lstatus:{log_id}"),
+            ],
+            [
+                InlineKeyboardButton("➡️ Next Steps", callback_data=f"lfield:next_steps:{log_id}"),
+                InlineKeyboardButton("🏷 Tags", callback_data=f"lfield:tags:{log_id}"),
+            ],
+            [InlineKeyboardButton("⬅️ Back to Task", callback_data=f"tview:{task_id}")],
+        ]
+    )
+
+
+def build_stakeholder_picker(options: list[str]) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(name, callback_data=f"ntpick:{i}")] for i, name in enumerate(options)]
+    rows.append([InlineKeyboardButton("✖️ Cancel", callback_data="cancelflow")])
     return InlineKeyboardMarkup(rows)

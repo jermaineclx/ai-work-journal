@@ -22,7 +22,7 @@ from app.ai.extraction import ExtractionAgent
 from app.ai.matching import TaskMatchingAgent
 from app.domain.entities import Task
 from app.repositories.memory_repository import MemoryRepository
-from app.schemas.ai import AIPipelineOutput
+from app.schemas.ai import AIPipelineOutput, MatchResult
 
 
 class AIOrchestrator:
@@ -94,6 +94,59 @@ class AIOrchestrator:
             prompt_versions={
                 "extraction": extraction_version,
                 "matching": match_version,
+                "status": status_version,
+                "tags": tags_version,
+                "resources": resources_version,
+                "impact": impact_version,
+            },
+        )
+
+    async def describe_new_task(self, *, message: str, tasks: list[Task]) -> AIPipelineOutput:
+        """Like `run()`, but skips Task Matching entirely.
+
+        Used when the user explicitly commands task creation (`/new_task`)
+        rather than leaving the AI to decide whether this is new or
+        existing work — there is nothing to match against by definition.
+        """
+        known_stakeholders = sorted({t.stakeholder for t in tasks if t.stakeholder})
+        known_tasks = [t.title for t in tasks]
+        known_tags = sorted({tag for t in tasks for tag in t.tags})
+
+        stakeholder_aliases = await self._memory.list_aliases("stakeholder")
+        task_aliases = await self._memory.list_aliases("task")
+        known_aliases = {**stakeholder_aliases, **task_aliases}
+
+        extraction, extraction_version = await self._extraction.run(
+            message=message,
+            known_stakeholders=known_stakeholders,
+            known_tasks=known_tasks,
+            known_aliases=known_aliases,
+        )
+
+        match = MatchResult(
+            matched_task_id=None, confidence=0.0, candidates=[], explanation=["Explicitly created via /new_task."]
+        )
+
+        status_result, status_version = await self._status.run(
+            message=message, status_hint=extraction.status_hint, prior_status=None
+        )
+        tags_result, tags_version = await self._tags.run(message=message, extraction=extraction, known_tags=known_tags)
+        resources_result, resources_version = await self._resources.run(message=message)
+        impact_result, impact_version = await self._impact.run(
+            message=message, extraction=extraction, status=status_result.status
+        )
+
+        return AIPipelineOutput(
+            extraction=extraction,
+            match=match,
+            status=status_result,
+            tags=tags_result,
+            resources=resources_result,
+            impact=impact_result,
+            summary=None,
+            overall_confidence=extraction.extraction_confidence,
+            prompt_versions={
+                "extraction": extraction_version,
                 "status": status_version,
                 "tags": tags_version,
                 "resources": resources_version,

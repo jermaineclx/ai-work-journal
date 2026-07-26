@@ -24,6 +24,8 @@ def build_application(settings: Settings, container: Container) -> Application:
 
     application.add_handler(CommandHandler("help", handlers.cmd_help))
     application.add_handler(CommandHandler("start", handlers.cmd_help))
+    application.add_handler(CommandHandler("new_task", handlers.cmd_new_task))
+    application.add_handler(CommandHandler("cancel", handlers.cmd_cancel))
     application.add_handler(CommandHandler("today", handlers.cmd_today))
     application.add_handler(CommandHandler("summary", handlers.cmd_summary))
     application.add_handler(CommandHandler("tasks", handlers.cmd_tasks))

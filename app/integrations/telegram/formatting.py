@@ -3,6 +3,7 @@ never exposing embeddings/similarity internals unless asked)."""
 
 from __future__ import annotations
 
+from app.domain.entities import DailyLog, Task
 from app.schemas.decision import DecisionSchema
 from app.schemas.log_result import LogOutcome
 from app.schemas.search import SearchResponse
@@ -80,4 +81,37 @@ def render_search_results(response: SearchResponse) -> str:
         lines.append("Updates")
         for log in response.logs[:5]:
             lines.append(f"• {log.date.isoformat()} [{log.task_title}] {log.original_message[:80]}")
+    return "\n".join(lines)
+
+
+def render_task_detail(task: Task) -> str:
+    lines = [
+        f"📋 {task.title}",
+        "",
+        f"Stakeholder: {task.stakeholder or '—'}",
+        f"Status: {task.status.value}",
+        f"Tags: {', '.join(task.tags) if task.tags else '—'}",
+        f"Resources: {', '.join(task.resources) if task.resources else '—'}",
+        "",
+        "Summary:",
+        task.summary or "(none yet)",
+        "",
+        f"{task.total_updates} update(s) · last updated {task.updated_at.date().isoformat()}",
+    ]
+    return "\n".join(lines)
+
+
+def render_log_detail(log: DailyLog, task_title: str) -> str:
+    lines = [
+        f"📝 Log for {task_title}",
+        "",
+        f"Date: {log.date.isoformat()}",
+        f"Message: {log.original_message}",
+        "",
+        f"Stakeholder: {log.stakeholder or '—'}",
+        f"Status: {log.status.value if log.status else '—'}",
+        f"Next steps: {log.next_steps or '—'}",
+        f"Tags: {', '.join(log.tags) if log.tags else '—'}",
+        f"Impact: {log.impact.value}",
+    ]
     return "\n".join(lines)

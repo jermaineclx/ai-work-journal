@@ -46,3 +46,33 @@ class TaskService:
         await self._tasks.update(task)
         await self._embeddings.refresh(task)
         return task
+
+    async def edit_title(self, task_id: str, title: str) -> Task:
+        task = await self._tasks.require_by_id(task_id)
+        task.title = title
+        await self._tasks.update(task)
+        await self._embeddings.refresh(task)
+        return task
+
+    async def edit_summary(self, task_id: str, summary: str) -> Task:
+        """Manually override the rolling summary. The next confirmed log
+        still regenerates it via the Summary Agent — but that agent always
+        rewrites *from* the current summary, so a manual edit becomes the
+        new baseline rather than being silently discarded."""
+        task = await self._tasks.require_by_id(task_id)
+        task.summary = summary
+        await self._tasks.update(task)
+        await self._embeddings.refresh(task)
+        return task
+
+    async def list_known_stakeholders(self, *, limit: int = 8) -> list[str]:
+        """Distinct stakeholders, most-recently-active task first — used
+        for the /new_task quick-pick keyboard."""
+        tasks = await self.list_tasks()
+        seen: list[str] = []
+        for task in tasks:
+            if task.stakeholder and task.stakeholder not in seen:
+                seen.append(task.stakeholder)
+            if len(seen) >= limit:
+                break
+        return seen

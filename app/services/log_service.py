@@ -22,9 +22,10 @@ from app.core.config import Settings
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.domain.entities import DailyLog, Task
-from app.domain.enums import DecisionAction
+from app.domain.enums import DecisionAction, TaskStatus
 from app.domain.rules.decision import TaskMatchCandidate, decide
 from app.repositories import DailyLogRepository, MemoryRepository, TaskRepository
+from app.schemas.ai import AIPipelineOutput
 from app.schemas.decision import decision_to_schema
 from app.schemas.log_result import LogOutcome
 from app.schemas.pending import PendingConfirmation
@@ -172,6 +173,58 @@ class LogService:
             task.total_updates = max(0, task.total_updates - 1)
             await self._tasks.update(task)
         return latest
+
+    async def create_task_explicitly(self, *, request_id: str, message: str, ai_output: AIPipelineOutput) -> LogOutcome:
+        """Create a task the user explicitly asked for (`/new_task`), skipping
+        the Decision Engine entirely — there's nothing to decide, the user
+        already told us this is new work. `ai_output` should come from
+        `AIOrchestrator.describe_new_task`, with `extraction.stakeholder`
+        already overridden to whatever the user specified."""
+        cached = await self._memory.get_processed_request(request_id)
+        if cached:
+            return LogOutcome.model_validate_json(cached)
+
+        outcome = await self._commit(
+            request_id=request_id,
+            message=message,
+            ai_output=ai_output,
+            task_id=None,
+            create_new=True,
+            auto_applied=False,
+        )
+        await self._memory.mark_request_processed(request_id, outcome.model_dump_json())
+        return outcome
+
+    async def list_logs_for_task(self, task_id: str) -> list[DailyLog]:
+        logs = await self._logs.get_by_task(task_id)
+        return sorted(logs, key=lambda log: log.timestamp, reverse=True)
+
+    async def get_log(self, log_id: str) -> DailyLog:
+        return await self._logs.require_by_id(log_id)
+
+    async def edit_log_stakeholder(self, log_id: str, stakeholder: str) -> DailyLog:
+        log = await self._logs.require_by_id(log_id)
+        log.stakeholder = stakeholder
+        await self._logs.update_extracted_fields(log)
+        return log
+
+    async def edit_log_status(self, log_id: str, status: TaskStatus) -> DailyLog:
+        log = await self._logs.require_by_id(log_id)
+        log.status = status
+        await self._logs.update_extracted_fields(log)
+        return log
+
+    async def edit_log_next_steps(self, log_id: str, next_steps: str) -> DailyLog:
+        log = await self._logs.require_by_id(log_id)
+        log.next_steps = next_steps
+        await self._logs.update_extracted_fields(log)
+        return log
+
+    async def edit_log_tags(self, log_id: str, tags: list[str]) -> DailyLog:
+        log = await self._logs.require_by_id(log_id)
+        log.tags = tags
+        await self._logs.update_extracted_fields(log)
+        return log
 
     async def _commit(
         self,
