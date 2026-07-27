@@ -169,3 +169,40 @@ async def test_learned_alias_resolves_before_roster_check():
     output = await orchestrator.describe_new_task(message="Li flagged an issue.", tasks=[])
 
     assert output.extraction.stakeholder == ["Liyuan"]
+
+
+@pytest.mark.asyncio
+async def test_describe_for_task_never_calls_matching_agent():
+    matching_agent = FakeMatchingAgent()
+    orchestrator = _make_orchestrator(matching_agent)
+    existing_task = Task(task_id="T001", title="Settlement Reconciliation", status=TaskStatus.KIV)
+
+    output = await orchestrator.describe_for_task(
+        message="Finance approved.", task=existing_task, tasks=[existing_task]
+    )
+
+    assert matching_agent.called is False
+    assert output.match.matched_task_id == "T001"
+    assert output.match.matched_task_title == "Settlement Reconciliation"
+
+
+@pytest.mark.asyncio
+async def test_describe_for_task_uses_the_tasks_current_status_as_prior():
+    orchestrator = _make_orchestrator(FakeMatchingAgent())
+    existing_task = Task(task_id="T001", title="Settlement Reconciliation", status=TaskStatus.KIV)
+
+    await orchestrator.describe_for_task(message="Update.", task=existing_task, tasks=[existing_task])
+
+    assert orchestrator._status.received_prior_status == TaskStatus.KIV
+
+
+@pytest.mark.asyncio
+async def test_describe_for_task_overall_confidence_is_certain():
+    """Confidence is 1.0 — the user explicitly picked this task, there's
+    no matching uncertainty to express."""
+    orchestrator = _make_orchestrator(FakeMatchingAgent())
+    existing_task = Task(task_id="T001", title="Settlement Reconciliation", status=TaskStatus.KIV)
+
+    output = await orchestrator.describe_for_task(message="Update.", task=existing_task, tasks=[existing_task])
+
+    assert output.overall_confidence == 1.0

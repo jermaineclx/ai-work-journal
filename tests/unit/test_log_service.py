@@ -449,3 +449,47 @@ async def test_edit_log_summary_updates_summary_without_touching_original_messag
 
     assert updated.log_summary == "Corrected, human-edited summary."
     assert updated.original_message == "raw text here"
+
+
+@pytest.mark.asyncio
+async def test_log_to_task_explicitly_commits_to_the_given_task_not_a_new_one():
+    """Mirrors /tasks -> task -> Add Log: the task is already known, so
+    this must never create a second task even though the AI output's
+    match confidence/id come from the caller, not the Decision Engine."""
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.KIV)
+    )
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=1.0)
+    service, task_repo = _make_service(ai_output, task_repo=task_repo)
+
+    outcome = await service.log_to_task_explicitly(
+        request_id="req-addlog-1", task_id="T001", message="Finance approved. QA tomorrow.", ai_output=ai_output
+    )
+
+    assert outcome.status == "committed"
+    assert outcome.is_new_task is False
+    assert outcome.auto_applied is False
+    assert outcome.task_id == "T001"
+    assert len(task_repo.tasks) == 1
+    assert task_repo.tasks["T001"].total_updates == 1
+
+
+@pytest.mark.asyncio
+async def test_log_to_task_explicitly_is_idempotent_on_request_id():
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.KIV)
+    )
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=1.0)
+    service, task_repo = _make_service(ai_output, task_repo=task_repo)
+
+    first = await service.log_to_task_explicitly(
+        request_id="req-addlog-2", task_id="T001", message="msg", ai_output=ai_output
+    )
+    second = await service.log_to_task_explicitly(
+        request_id="req-addlog-2", task_id="T001", message="msg", ai_output=ai_output
+    )
+
+    assert first == second
+    assert task_repo.tasks["T001"].total_updates == 1

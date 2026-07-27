@@ -157,6 +157,66 @@ class AIOrchestrator:
             },
         )
 
+    async def describe_for_task(self, *, message: str, task: Task, tasks: list[Task]) -> AIPipelineOutput:
+        """Like `run()`, but the task is already known — skips Task
+        Matching entirely and uses that task's current status as context
+        for status classification.
+
+        Used when the user explicitly picks a task (`/tasks` → task →
+        Add Log) rather than leaving the AI to decide which task this
+        belongs to.
+        """
+        known_stakeholders = [s.value for s in Stakeholder]
+        known_tasks = [t.title for t in tasks]
+        known_tags = sorted({tag for t in tasks for tag in t.tags})
+
+        stakeholder_aliases = await self._memory.list_aliases("stakeholder")
+        task_aliases = await self._memory.list_aliases("task")
+        known_aliases = {**stakeholder_aliases, **task_aliases}
+
+        extraction, extraction_version = await self._extraction.run(
+            message=message,
+            known_stakeholders=known_stakeholders,
+            known_tasks=known_tasks,
+            known_aliases=known_aliases,
+        )
+
+        extraction = await self._normalize_extraction(extraction)
+
+        match = MatchResult(
+            matched_task_id=task.task_id,
+            matched_task_title=task.title,
+            confidence=1.0,
+            explanation=["Explicitly logged against this task via /tasks → Add Log."],
+        )
+
+        status_result, status_version = await self._status.run(
+            message=message, status_hint=extraction.status_hint, prior_status=task.status
+        )
+        tags_result, tags_version = await self._tags.run(message=message, extraction=extraction, known_tags=known_tags)
+        resources_result, resources_version = await self._resources.run(message=message)
+        impact_result, impact_version = await self._impact.run(
+            message=message, extraction=extraction, status=status_result.status
+        )
+
+        return AIPipelineOutput(
+            extraction=extraction,
+            match=match,
+            status=status_result,
+            tags=tags_result,
+            resources=resources_result,
+            impact=impact_result,
+            summary=None,
+            overall_confidence=1.0,
+            prompt_versions={
+                "extraction": extraction_version,
+                "status": status_version,
+                "tags": tags_version,
+                "resources": resources_version,
+                "impact": impact_version,
+            },
+        )
+
     async def _normalize_extraction(self, extraction: ExtractionResult) -> ExtractionResult:
         """Applies learned aliases, then validates every extracted
         stakeholder name against the fixed roster (04_AI_DESIGN.MD §10,

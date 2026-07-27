@@ -221,6 +221,11 @@ async def _handle_flow_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await _apply_task_impact(update, context, flow["task_id"], message)
         return
 
+    if flow_type == "task_log":
+        context.user_data.pop("flow", None)
+        await _add_log_to_task(update, context, flow["task_id"], message)
+        return
+
     context.user_data.pop("flow", None)
 
 
@@ -377,6 +382,31 @@ async def _apply_task_impact(
     )
 
 
+async def _add_log_to_task(update: Update, context: ContextTypes.DEFAULT_TYPE, task_id: str, message: str) -> None:
+    """Logs a message against a task the user explicitly picked
+    (/tasks → task → Add Log) — skips task matching entirely since the
+    task is already known."""
+    container = _container(context)
+    try:
+        task = await container.task_service.get_task(task_id)
+    except NotFoundError:
+        await update.message.reply_text("That task no longer exists.")
+        return
+
+    tasks = await container.task_repo.get_all()
+    request_id = f"tg-addlog-{uuid.uuid4().hex[:16]}"
+    try:
+        ai_output = await container.orchestrator.describe_for_task(message=message, task=task, tasks=tasks)
+        outcome = await container.log_service.log_to_task_explicitly(
+            request_id=request_id, task_id=task_id, message=message, ai_output=ai_output
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("add_log_to_task_failed", extra={"task_id": task_id})
+        await update.message.reply_text("Something went wrong logging that. Please try again.")
+        return
+    await update.message.reply_text(render_committed(outcome))
+
+
 async def _apply_log_field_edit(
     update: Update, context: ContextTypes.DEFAULT_TYPE, field: str, log_id: str, value: str
 ) -> None:
@@ -528,6 +558,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             task = await container.task_service.edit_priority(task_id, priority)
             await query.edit_message_text(
                 render_task_detail(task), reply_markup=build_task_detail_keyboard(task.task_id)
+            )
+            return
+
+        if action == "taddlog":
+            task = await container.task_service.get_task(rest)
+            context.user_data["flow"] = {"type": "task_log", "task_id": rest}
+            await query.edit_message_text(
+                f'What did you do on "{task.title}"? Describe it in your own words (or /cancel):'
             )
             return
 

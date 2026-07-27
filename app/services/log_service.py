@@ -195,6 +195,28 @@ class LogService:
         await self._memory.mark_request_processed(request_id, outcome.model_dump_json())
         return outcome
 
+    async def log_to_task_explicitly(
+        self, *, request_id: str, task_id: str, message: str, ai_output: AIPipelineOutput
+    ) -> LogOutcome:
+        """Logs against a task the user explicitly picked (`/tasks` → task
+        → Add Log), skipping the Decision Engine — there's nothing to
+        decide, the user already told us which task this belongs to.
+        `ai_output` should come from `AIOrchestrator.describe_for_task`."""
+        cached = await self._memory.get_processed_request(request_id)
+        if cached:
+            return LogOutcome.model_validate_json(cached)
+
+        outcome = await self._commit(
+            request_id=request_id,
+            message=message,
+            ai_output=ai_output,
+            task_id=task_id,
+            create_new=False,
+            auto_applied=False,
+        )
+        await self._memory.mark_request_processed(request_id, outcome.model_dump_json())
+        return outcome
+
     async def list_logs_for_task(self, task_id: str) -> list[DailyLog]:
         logs = await self._logs.get_by_task(task_id)
         return sorted(logs, key=lambda log: log.timestamp, reverse=True)

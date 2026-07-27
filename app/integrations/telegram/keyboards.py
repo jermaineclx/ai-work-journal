@@ -71,6 +71,7 @@ def build_task_detail_keyboard(task_id: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton("🔗 Resources", callback_data=f"tfield:resources:{task_id}"),
             ],
             [InlineKeyboardButton("🚦 Priority", callback_data=f"tpriority:{task_id}")],
+            [InlineKeyboardButton("➕ Add Log", callback_data=f"taddlog:{task_id}")],
             [InlineKeyboardButton("🕘 View Logs", callback_data=f"tlogs:{task_id}")],
             [InlineKeyboardButton("⬅️ Back to Tasks", callback_data="tlist")],
         ]
