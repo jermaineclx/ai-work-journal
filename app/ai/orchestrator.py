@@ -17,6 +17,8 @@ keeps unconfirmed LLM output away from persisted summaries, per
 
 from __future__ import annotations
 
+import asyncio
+
 from app.ai.classification import ImpactAgent, ResourceAgent, StatusAgent, TagAgent
 from app.ai.extraction import ExtractionAgent
 from app.ai.matching import TaskMatchingAgent
@@ -65,7 +67,18 @@ class AIOrchestrator:
 
         extraction = await self._normalize_extraction(extraction)
 
-        match, match_version = await self._matching.run(message=message, extraction=extraction, tasks=tasks)
+        # matching/tags/resources each depend only on extraction (and the
+        # raw message) — none of them depend on each other — so run them
+        # concurrently instead of one-after-another. status still has to
+        # wait for matching (it needs the matched task's prior status),
+        # and impact still has to wait for status.
+        (match, match_version), (tags_result, tags_version), (resources_result, resources_version) = (
+            await asyncio.gather(
+                self._matching.run(message=message, extraction=extraction, tasks=tasks),
+                self._tags.run(message=message, extraction=extraction, known_tags=known_tags),
+                self._resources.run(message=message),
+            )
+        )
 
         prior_task = tasks_by_id.get(match.matched_task_id) if match.matched_task_id else None
 
@@ -75,8 +88,6 @@ class AIOrchestrator:
             prior_status=prior_task.status if prior_task else None,
         )
 
-        tags_result, tags_version = await self._tags.run(message=message, extraction=extraction, known_tags=known_tags)
-        resources_result, resources_version = await self._resources.run(message=message)
         impact_result, impact_version = await self._impact.run(
             message=message, extraction=extraction, status=status_result.status
         )
@@ -130,11 +141,15 @@ class AIOrchestrator:
             matched_task_id=None, confidence=0.0, candidates=[], explanation=["Explicitly created via /new_task."]
         )
 
-        status_result, status_version = await self._status.run(
-            message=message, status_hint=extraction.status_hint, prior_status=None
+        # No matching step here, so status doesn't have to wait on
+        # anything either — status/tags/resources can all run concurrently.
+        (status_result, status_version), (tags_result, tags_version), (resources_result, resources_version) = (
+            await asyncio.gather(
+                self._status.run(message=message, status_hint=extraction.status_hint, prior_status=None),
+                self._tags.run(message=message, extraction=extraction, known_tags=known_tags),
+                self._resources.run(message=message),
+            )
         )
-        tags_result, tags_version = await self._tags.run(message=message, extraction=extraction, known_tags=known_tags)
-        resources_result, resources_version = await self._resources.run(message=message)
         impact_result, impact_version = await self._impact.run(
             message=message, extraction=extraction, status=status_result.status
         )
@@ -190,11 +205,16 @@ class AIOrchestrator:
             explanation=["Explicitly logged against this task via /tasks → Add Log."],
         )
 
-        status_result, status_version = await self._status.run(
-            message=message, status_hint=extraction.status_hint, prior_status=task.status
+        # prior_status comes from the task we already have in hand, not
+        # from a matching step — status/tags/resources can all run
+        # concurrently.
+        (status_result, status_version), (tags_result, tags_version), (resources_result, resources_version) = (
+            await asyncio.gather(
+                self._status.run(message=message, status_hint=extraction.status_hint, prior_status=task.status),
+                self._tags.run(message=message, extraction=extraction, known_tags=known_tags),
+                self._resources.run(message=message),
+            )
         )
-        tags_result, tags_version = await self._tags.run(message=message, extraction=extraction, known_tags=known_tags)
-        resources_result, resources_version = await self._resources.run(message=message)
         impact_result, impact_version = await self._impact.run(
             message=message, extraction=extraction, status=status_result.status
         )

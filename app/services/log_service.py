@@ -29,6 +29,7 @@ from app.schemas.ai import AIPipelineOutput
 from app.schemas.decision import decision_to_schema
 from app.schemas.log_result import LogOutcome
 from app.schemas.pending import PendingConfirmation
+from app.utils.background import fire_and_forget
 
 logger = get_logger(__name__)
 
@@ -309,10 +310,6 @@ class LogService:
                 title=ai_output.extraction.task_title or "Untitled Task",
                 status=status,
             )
-            summary_result, _ = await self._summary_agent.run(
-                task_title=task.title, current_summary="", message=message, status=status
-            )
-            task.summary = summary_result.summary
             task.apply_update(
                 status=status,
                 new_tags=ai_output.tags.tags,
@@ -324,10 +321,6 @@ class LogService:
             if not task_id:
                 raise NotFoundError("A task_id is required when create_new is False")
             task = await self._tasks.require_by_id(task_id)
-            summary_result, _ = await self._summary_agent.run(
-                task_title=task.title, current_summary=task.summary, message=message, status=status
-            )
-            task.summary = summary_result.summary
             task.apply_update(
                 status=status,
                 new_tags=ai_output.tags.tags,
@@ -335,8 +328,6 @@ class LogService:
                 new_stakeholders=ai_output.extraction.stakeholder,
             )
             await self._tasks.update(task)
-
-        await self._embeddings.refresh(task)
 
         log_id = await self._logs.next_log_id()
         daily_log = DailyLog(
@@ -355,6 +346,16 @@ class LogService:
         )
         await self._logs.append(daily_log)
 
+        # Summary regeneration and embedding refresh touch nothing the
+        # confirmation message shows (render_committed never displays the
+        # summary) and only matter for *future* task matching — run them
+        # after the user already has everything they need instead of
+        # making them wait on two more LLM/embedding calls.
+        fire_and_forget(
+            self._regenerate_summary_and_refresh_embedding(task, message, status),
+            name="post_commit_summary_refresh",
+        )
+
         return LogOutcome(
             status="committed",
             request_id=request_id,
@@ -368,3 +369,15 @@ class LogService:
             tags=task.tags,
             log_id=log_id,
         )
+
+    async def _regenerate_summary_and_refresh_embedding(self, task: Task, message: str, status: TaskStatus) -> None:
+        """Runs after the user already has their confirmation — `task.summary`
+        here is still the pre-this-update value (never touched synchronously
+        in `_commit`), which is exactly the `current_summary` the Summary
+        Agent needs to rewrite from."""
+        summary_result, _ = await self._summary_agent.run(
+            task_title=task.title, current_summary=task.summary, message=message, status=status
+        )
+        task.summary = summary_result.summary
+        await self._tasks.update(task)
+        await self._embeddings.refresh(task)

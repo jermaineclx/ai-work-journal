@@ -26,6 +26,7 @@ from app.schemas.ai import (
     TagResult,
 )
 from app.services.log_service import LogService
+from app.utils.background import wait_for_background_tasks
 
 
 class FakeTaskRepository:
@@ -493,3 +494,33 @@ async def test_log_to_task_explicitly_is_idempotent_on_request_id():
 
     assert first == second
     assert task_repo.tasks["T001"].total_updates == 1
+
+
+@pytest.mark.asyncio
+async def test_commit_does_not_block_on_summary_or_embedding_refresh():
+    """The confirmation the user sees doesn't show the summary, so
+    regenerating it (and refreshing the embedding) must not be part of
+    what process_message() awaits — only the caller explicitly waiting
+    for background tasks should observe their effects."""
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(
+            task_id="T001",
+            title="Settlement Reconciliation",
+            stakeholder=["Finance"],
+            status=TaskStatus.IN_PROGRESS,
+            summary="Old summary.",
+        )
+    )
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97)
+    service, task_repo = _make_service(ai_output, task_repo=task_repo)
+
+    await service.process_message(request_id="req-12", user_id="u1", message="Finance approved.")
+
+    # Immediately after awaiting process_message, the background summary
+    # regeneration may or may not have run yet — either is valid, since
+    # nothing in the returned outcome depends on it.
+    await wait_for_background_tasks()
+
+    assert task_repo.tasks["T001"].summary == "Summary after: Finance approved."
+    assert "T001" in service._embeddings.refreshed
