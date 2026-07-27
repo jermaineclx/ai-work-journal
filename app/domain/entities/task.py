@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from app.domain.enums import TaskStatus
+from app.domain.enums import Priority, TaskStatus
 from app.utils.time import utcnow_naive
 
 
@@ -26,6 +26,7 @@ class Task:
     created_at: datetime = field(default_factory=utcnow_naive)
     updated_at: datetime = field(default_factory=utcnow_naive)
     total_updates: int = 0
+    priority: Priority | None = None
 
     def __post_init__(self) -> None:
         if not self.title.strip():

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from app.ai.embeddings import EmbeddingRefresher
 from app.domain.entities import Task
-from app.domain.enums import TaskStatus
+from app.domain.enums import Priority, TaskStatus
 from app.repositories import TaskRepository
 
 
@@ -66,7 +66,16 @@ class TaskService:
         return task
 
     async def edit_resources(self, task_id: str, resources: list[str]) -> Task:
+        """Appends new resources (deduped), never overwrites existing ones."""
         task = await self._tasks.require_by_id(task_id)
-        task.resources = resources
+        for resource in resources:
+            if resource not in task.resources:
+                task.resources.append(resource)
+        await self._tasks.update(task)
+        return task
+
+    async def edit_priority(self, task_id: str, priority: Priority) -> Task:
+        task = await self._tasks.require_by_id(task_id)
+        task.priority = priority
         await self._tasks.update(task)
         return task

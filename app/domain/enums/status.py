@@ -53,6 +53,20 @@ class Stakeholder(str, Enum):
         return resolved
 
 
+class Priority(str, Enum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+
+    @classmethod
+    def parse(cls, value: str | None) -> Priority | None:
+        """Case-insensitive match ('p0' -> P0); None if no match or unset."""
+        if not value:
+            return None
+        normalized = value.strip().upper()
+        return next((member for member in cls if member.value == normalized), None)
+
+
 class ImpactLevel(str, Enum):
     INFORMATIONAL = "Informational"
     LOW = "Low"

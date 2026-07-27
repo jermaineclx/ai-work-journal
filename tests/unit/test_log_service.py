@@ -365,6 +365,10 @@ async def test_edit_log_resources_impact_and_date():
     updated = await service.edit_log_resources(log_id, ["Settlement SQL script"])
     assert updated.resources == ["Settlement SQL script"]
 
+    # Appends rather than overwrites, deduping against what's already there.
+    updated = await service.edit_log_resources(log_id, ["Settlement SQL script", "New Doc"])
+    assert updated.resources == ["Settlement SQL script", "New Doc"]
+
     updated = await service.edit_log_impact(log_id, ImpactLevel.HIGH)
     assert updated.impact == ImpactLevel.HIGH
 

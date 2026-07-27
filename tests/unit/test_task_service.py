@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.entities import Task
-from app.domain.enums import TaskStatus
+from app.domain.enums import Priority, TaskStatus
 from app.services.task_service import TaskService
 
 
@@ -44,7 +44,7 @@ def _make_service():
 @pytest.mark.asyncio
 async def test_edit_title_updates_task_and_refreshes_embedding():
     service, repo, refresher = _make_service()
-    await repo.create(Task(task_id="T001", title="Old Title", stakeholder="Finance", status=TaskStatus.IN_PROGRESS))
+    await repo.create(Task(task_id="T001", title="Old Title", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS))
 
     task = await service.edit_title("T001", "New Title")
 
@@ -56,7 +56,7 @@ async def test_edit_title_updates_task_and_refreshes_embedding():
 @pytest.mark.asyncio
 async def test_edit_summary_updates_task_and_refreshes_embedding():
     service, repo, refresher = _make_service()
-    await repo.create(Task(task_id="T001", title="Title", stakeholder="Finance", status=TaskStatus.IN_PROGRESS))
+    await repo.create(Task(task_id="T001", title="Title", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS))
 
     task = await service.edit_summary("T001", "New rolling summary text.")
 
@@ -69,9 +69,57 @@ async def test_edit_resources_updates_task_without_refreshing_embedding():
     """Resources aren't part of the embedding text (title/stakeholder/
     summary/tags only), so editing them shouldn't trigger a refresh."""
     service, repo, refresher = _make_service()
-    await repo.create(Task(task_id="T001", title="Title", stakeholder="Finance", status=TaskStatus.IN_PROGRESS))
+    await repo.create(Task(task_id="T001", title="Title", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS))
 
     task = await service.edit_resources("T001", ["DataSuite Dashboard", "https://example.com/query"])
 
     assert task.resources == ["DataSuite Dashboard", "https://example.com/query"]
     assert "T001" not in refresher.refreshed
+
+
+@pytest.mark.asyncio
+async def test_edit_resources_appends_rather_than_overwrites():
+    service, repo, _ = _make_service()
+    await repo.create(
+        Task(
+            task_id="T001",
+            title="Title",
+            stakeholder=["Finance"],
+            status=TaskStatus.IN_PROGRESS,
+            resources=["Existing Doc"],
+        )
+    )
+
+    task = await service.edit_resources("T001", ["New Doc"])
+
+    assert task.resources == ["Existing Doc", "New Doc"]
+
+
+@pytest.mark.asyncio
+async def test_edit_resources_dedupes_against_existing():
+    service, repo, _ = _make_service()
+    await repo.create(
+        Task(
+            task_id="T001",
+            title="Title",
+            stakeholder=["Finance"],
+            status=TaskStatus.IN_PROGRESS,
+            resources=["Existing Doc"],
+        )
+    )
+
+    task = await service.edit_resources("T001", ["Existing Doc", "New Doc"])
+
+    assert task.resources == ["Existing Doc", "New Doc"]
+
+
+@pytest.mark.asyncio
+async def test_edit_priority_updates_task():
+    service, repo, _ = _make_service()
+    await repo.create(Task(task_id="T001", title="Title", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS))
+    assert repo.tasks["T001"].priority is None
+
+    task = await service.edit_priority("T001", Priority.P0)
+
+    assert task.priority == Priority.P0
+    assert repo.tasks["T001"].priority == Priority.P0

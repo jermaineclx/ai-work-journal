@@ -11,7 +11,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.domain.entities import DailyLog, Task
-from app.domain.enums import ImpactLevel, TaskStatus
+from app.domain.enums import ImpactLevel, Priority, TaskStatus
 from app.utils.time import utcnow_naive
 
 _TAG_SEP = ", "
@@ -38,6 +38,10 @@ def _parse_status(value: str) -> TaskStatus:
         return _LEGACY_STATUS_MAP.get(value, TaskStatus.IN_PROGRESS)
 
 
+def _parse_priority(value: Any) -> Priority | None:
+    return Priority.parse(str(value)) if value else None
+
+
 def _join(values: list[str], sep: str) -> str:
     return sep.join(v for v in values if v)
 
@@ -60,6 +64,7 @@ def task_to_row(task: Task) -> dict[str, Any]:
         "Last Updated": task.updated_at.date().isoformat(),
         "Total Updates": task.total_updates,
         "Summary": task.summary,
+        "Priority": task.priority.value if task.priority else "",
     }
 
 
@@ -75,6 +80,7 @@ def row_to_task(record: dict[str, Any]) -> Task:
         created_at=_parse_date(record.get("Date Created")),
         updated_at=_parse_date(record.get("Last Updated")),
         total_updates=int(record.get("Total Updates") or 0),
+        priority=_parse_priority(record.get("Priority")),
     )
 
 

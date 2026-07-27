@@ -5,7 +5,7 @@ from __future__ import annotations
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.domain.entities import DailyLog, Task
-from app.domain.enums import ImpactLevel, TaskStatus
+from app.domain.enums import ImpactLevel, Priority, TaskStatus
 from app.schemas.decision import DecisionSchema
 
 _MAX_TITLE_LEN = 28
@@ -70,6 +70,7 @@ def build_task_detail_keyboard(task_id: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton("📄 Summary", callback_data=f"tfield:summary:{task_id}"),
                 InlineKeyboardButton("🔗 Resources", callback_data=f"tfield:resources:{task_id}"),
             ],
+            [InlineKeyboardButton("🚦 Priority", callback_data=f"tpriority:{task_id}")],
             [InlineKeyboardButton("🕘 View Logs", callback_data=f"tlogs:{task_id}")],
             [InlineKeyboardButton("⬅️ Back to Tasks", callback_data="tlist")],
         ]
@@ -122,6 +123,14 @@ def build_impact_picker_keyboard(log_id: str) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(impact.value, callback_data=f"limpactset:{log_id}:{idx}")]
         for idx, impact in enumerate(ImpactLevel)
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def build_priority_picker_keyboard(task_id: str) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(priority.value, callback_data=f"tsetpriority:{task_id}:{idx}")]
+        for idx, priority in enumerate(Priority)
     ]
     return InlineKeyboardMarkup(rows)
 

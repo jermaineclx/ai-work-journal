@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from app.domain.entities import DailyLog, Task
-from app.domain.enums import ImpactLevel, TaskStatus
+from app.domain.enums import ImpactLevel, Priority, TaskStatus
 from app.repositories.mappers import (
     daily_log_to_row,
     row_to_daily_log,
@@ -22,6 +22,7 @@ def test_task_round_trips_through_row_mapping():
         created_at=datetime(2026, 7, 1),
         updated_at=datetime(2026, 7, 26),
         total_updates=4,
+        priority=Priority.P1,
     )
     row = task_to_row(task)
     restored = row_to_task(row)
@@ -33,6 +34,7 @@ def test_task_round_trips_through_row_mapping():
     assert restored.tags == task.tags
     assert restored.resources == task.resources
     assert restored.total_updates == task.total_updates
+    assert restored.priority == Priority.P1
 
 
 def test_daily_log_round_trips_through_row_mapping():
@@ -107,6 +109,9 @@ def test_row_to_task_maps_legacy_status_values_instead_of_crashing():
     task = row_to_task(row)
 
     assert task.status == TaskStatus.KIV
+    # This row predates the Priority column entirely (no key in the dict
+    # at all, not just an empty cell) — must default to None, not crash.
+    assert task.priority is None
 
 
 def test_row_to_daily_log_maps_legacy_status_values_instead_of_crashing():

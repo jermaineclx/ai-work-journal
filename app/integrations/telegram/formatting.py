@@ -94,6 +94,7 @@ def render_task_detail(task: Task) -> str:
         "",
         f"Stakeholder: {_fmt_stakeholders(task.stakeholder)}",
         f"Status: {task.status.value}",
+        f"Priority: {task.priority.value if task.priority else '—'}",
         f"Tags: {', '.join(task.tags) if task.tags else '—'}",
         f"Resources: {', '.join(task.resources) if task.resources else '—'}",
         "",
@@ -152,6 +153,7 @@ def render_all_tasks(tasks: list[Task]) -> list[str]:
             f"[{t.task_id}] {t.title}\n"
             f"Stakeholder: {_fmt_stakeholders(t.stakeholder)}\n"
             f"Status: {t.status.value}\n"
+            f"Priority: {t.priority.value if t.priority else '—'}\n"
             f"Tags: {', '.join(t.tags) if t.tags else '—'}\n"
             f"Resources: {', '.join(t.resources) if t.resources else '—'}\n"
             f"Created: {t.created_at.date().isoformat()} · Updated: {t.updated_at.date().isoformat()} · "

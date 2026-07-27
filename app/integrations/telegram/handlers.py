@@ -20,7 +20,8 @@ from telegram.ext import ContextTypes
 from app.core.container import Container
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
-from app.domain.enums import ImpactLevel, Stakeholder, TaskStatus
+from app.domain.entities import Task
+from app.domain.enums import ImpactLevel, Priority, Stakeholder, TaskStatus
 from app.integrations.telegram.formatting import (
     render_all_logs,
     render_all_tasks,
@@ -37,6 +38,7 @@ from app.integrations.telegram.keyboards import (
     build_impact_picker_keyboard,
     build_log_detail_keyboard,
     build_log_list_keyboard,
+    build_priority_picker_keyboard,
     build_stakeholder_picker,
     build_status_picker_keyboard,
     build_task_detail_keyboard,
@@ -65,7 +67,7 @@ HELP_TEXT = (
 
 _TASK_ID_PATTERN = re.compile(r"^[Tt]\d+$")
 
-_TASK_EDITABLE_FIELDS = ["title", "stakeholder", "status", "tags", "resources", "summary"]
+_TASK_EDITABLE_FIELDS = ["title", "stakeholder", "status", "priority", "tags", "resources", "summary"]
 _LOG_EDITABLE_FIELDS = ["date", "stakeholder", "status", "next_steps", "tags", "resources", "impact"]
 
 
@@ -115,6 +117,12 @@ def _parse_stakeholders(value: str) -> tuple[list[str], list[str]]:
         elif member.value not in valid:
             valid.append(member.value)
     return valid, invalid
+
+
+def _field_prompt(field: str, entity: str) -> str:
+    if field == "resources":
+        return f"Send resource(s) to add to this {entity}, comma-separated (added to the existing list, or /cancel):"
+    return f"Send the new {field.replace('_', ' ')} for this {entity} (or /cancel):"
 
 
 def _container(context: ContextTypes.DEFAULT_TYPE) -> Container:
@@ -206,6 +214,11 @@ async def _handle_flow_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await _apply_log_field_edit(update, context, flow["field"], flow["log_id"], message)
         return
 
+    if flow_type == "task_impact":
+        context.user_data.pop("flow", None)
+        await _apply_task_impact(update, context, flow["task_id"], message)
+        return
+
     context.user_data.pop("flow", None)
 
 
@@ -259,6 +272,20 @@ async def _create_task_from_flow(container: Container, ai_output, description: s
     )
 
 
+# --- Status changes (shared by the button picker and /edit) ---
+
+
+async def _apply_task_status(container: Container, task_id: str, status: TaskStatus) -> tuple[Task, bool]:
+    """Sets a task's status and reports whether this transition just
+    completed it (i.e. wasn't already Completed) — the trigger for the
+    impact-prompt flow."""
+    current = await container.task_service.get_task(task_id)
+    was_completed = current.status == TaskStatus.COMPLETED
+    task = await container.task_service.edit_status(task_id, status)
+    just_completed = status == TaskStatus.COMPLETED and not was_completed
+    return task, just_completed
+
+
 # --- Field edit application (shared by the free-text reply path) ---
 
 
@@ -285,6 +312,14 @@ async def _apply_task_field_edit(
             task = await container.task_service.edit_resources(task_id, _parse_list(value))
         elif field == "summary":
             task = await container.task_service.edit_summary(task_id, value)
+        elif field == "priority":
+            priority = Priority.parse(value)
+            if priority is None:
+                await update.message.reply_text(
+                    f"Unknown priority '{value}'. Valid: {', '.join(p.value for p in Priority)}"
+                )
+                return
+            task = await container.task_service.edit_priority(task_id, priority)
         elif field == "status":
             status = _parse_status(value)
             if status is None:
@@ -292,7 +327,13 @@ async def _apply_task_field_edit(
                     f"Unknown status '{value}'. Valid: {', '.join(s.value for s in TaskStatus)}"
                 )
                 return
-            task = await container.task_service.edit_status(task_id, status)
+            task, just_completed = await _apply_task_status(container, task_id, status)
+            if just_completed:
+                context.user_data["flow"] = {"type": "task_impact", "task_id": task_id}
+                await update.message.reply_text(
+                    f'🎉 Marked "{task.title}" as Completed!\n\nWhat was the impact of this work?'
+                )
+                return
         else:
             await update.message.reply_text(f"Can't edit '{field}' on a task.")
             return
@@ -301,6 +342,36 @@ async def _apply_task_field_edit(
         return
     await update.message.reply_text(
         f"Updated {field}.\n\n{render_task_detail(task)}", reply_markup=build_task_detail_keyboard(task.task_id)
+    )
+
+
+async def _apply_task_impact(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, task_id: str, impact_text: str
+) -> None:
+    """Weaves the user's answer to "what was the impact?" into the task's
+    summary via the Summary Agent, triggered after marking a task Completed."""
+    container = _container(context)
+    try:
+        task = await container.task_service.get_task(task_id)
+        summary_result, _ = await container.summary_agent.run(
+            task_title=task.title,
+            current_summary=task.summary,
+            message=f"This task is now complete. Impact: {impact_text}",
+            status=TaskStatus.COMPLETED,
+        )
+        task = await container.task_service.edit_summary(task_id, summary_result.summary)
+    except NotFoundError:
+        await update.message.reply_text("That task no longer exists.")
+        return
+    except Exception:  # noqa: BLE001
+        logger.exception("task_impact_summary_failed", extra={"task_id": task_id})
+        await update.message.reply_text(
+            "Something went wrong recording that — you can add it manually via the Summary button or /edit."
+        )
+        return
+    await update.message.reply_text(
+        f"Got it — updated the summary.\n\n{render_task_detail(task)}",
+        reply_markup=build_task_detail_keyboard(task.task_id),
     )
 
 
@@ -419,7 +490,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if action == "tfield":
             field, task_id = rest.split(":", 1)
             context.user_data["flow"] = {"type": "edit_task", "field": field, "task_id": task_id}
-            await query.edit_message_text(f"Send the new {field} for this task (or /cancel):")
+            await query.edit_message_text(_field_prompt(field, "task"))
             return
 
         if action == "tstatus":
@@ -431,7 +502,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if action == "tsetstatus":
             task_id, idx = rest.split(":")
             status = list(TaskStatus)[int(idx)]
-            task = await container.task_service.edit_status(task_id, status)
+            task, just_completed = await _apply_task_status(container, task_id, status)
+            if just_completed:
+                context.user_data["flow"] = {"type": "task_impact", "task_id": task_id}
+                await query.edit_message_text(
+                    f'🎉 Marked "{task.title}" as Completed!\n\nWhat was the impact of this work?'
+                )
+                return
+            await query.edit_message_text(
+                render_task_detail(task), reply_markup=build_task_detail_keyboard(task.task_id)
+            )
+            return
+
+        if action == "tpriority":
+            await query.edit_message_text("Pick a priority:", reply_markup=build_priority_picker_keyboard(rest))
+            return
+
+        if action == "tsetpriority":
+            task_id, idx = rest.split(":")
+            priority = list(Priority)[int(idx)]
+            task = await container.task_service.edit_priority(task_id, priority)
             await query.edit_message_text(
                 render_task_detail(task), reply_markup=build_task_detail_keyboard(task.task_id)
             )
@@ -458,7 +548,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if action == "lfield":
             field, log_id = rest.split(":", 1)
             context.user_data["flow"] = {"type": "edit_log", "field": field, "log_id": log_id}
-            await query.edit_message_text(f"Send the new {field.replace('_', ' ')} for this log (or /cancel):")
+            await query.edit_message_text(_field_prompt(field, "log"))
             return
 
         if action == "lstatus":
@@ -559,6 +649,7 @@ async def cmd_all_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not tasks:
         await update.message.reply_text("No tasks match that filter." if status_filter else "No tasks yet.")
         return
+    tasks = sorted(tasks, key=lambda t: t.task_id)
     for chunk in render_all_tasks(tasks):
         await update.message.reply_text(chunk)
 
@@ -587,6 +678,7 @@ async def cmd_all_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("No logs match those filters.")
         return
 
+    logs = sorted(logs, key=lambda log: log.log_id)
     tasks_by_id = {t.task_id: t for t in await container.task_service.list_tasks()}
     for chunk in render_all_logs(logs, tasks_by_id):
         await update.message.reply_text(chunk)
@@ -596,10 +688,12 @@ EDIT_USAGE = (
     "Usage: /edit task|log <id> <field> <value>\n\n"
     f"Task fields: {', '.join(_TASK_EDITABLE_FIELDS)}\n"
     f"Log fields: {', '.join(_LOG_EDITABLE_FIELDS)}\n\n"
-    "Stakeholder accepts multiple names, comma-separated.\n\n"
+    "Stakeholder accepts multiple names, comma-separated. Resources are always "
+    "appended to the existing list, never overwritten.\n\n"
     "Examples:\n"
     "/edit task T001 stakeholder Liyuan, Ammir\n"
     "/edit task T001 status KIV\n"
+    "/edit task T001 priority P0\n"
     "/edit log L0002 next_steps Ship next week\n"
     "/edit log L0002 date 2026-07-26"
 )

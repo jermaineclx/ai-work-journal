@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.container import Container
 from app.core.exceptions import AppError
 from app.core.logging import get_logger
-from app.integrations.telegram.bot import build_application, configure_webhook
+from app.integrations.telegram.bot import build_application, configure_bot_commands, configure_webhook
 from app.jobs.scheduler import build_scheduler
 from app.schemas.api import ErrorResponse
 
@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
     telegram_application = build_application(settings, container)
     await telegram_application.initialize()
     await configure_webhook(telegram_application, settings)
+    await configure_bot_commands(telegram_application)
     app.state.telegram_application = telegram_application
 
     scheduler = build_scheduler(container, telegram_application.bot)

@@ -237,8 +237,11 @@ class LogService:
         return log
 
     async def edit_log_resources(self, log_id: str, resources: list[str]) -> DailyLog:
+        """Appends new resources (deduped), never overwrites existing ones."""
         log = await self._logs.require_by_id(log_id)
-        log.resources = resources
+        for resource in resources:
+            if resource not in log.resources:
+                log.resources.append(resource)
         await self._logs.update_extracted_fields(log)
         return log
 

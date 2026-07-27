@@ -7,7 +7,7 @@ loop; FastAPI/uvicorn owns that.
 
 from __future__ import annotations
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import Application, ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from app.core.config import Settings
@@ -16,6 +16,23 @@ from app.core.logging import get_logger
 from app.integrations.telegram import handlers
 
 logger = get_logger(__name__)
+
+# Shown as the native "/" autocomplete menu in Telegram clients. Kept in
+# the same order as HELP_TEXT so both stay easy to eyeball together.
+BOT_COMMANDS = [
+    BotCommand("new_task", "Start a new task explicitly"),
+    BotCommand("today", "What you've logged today"),
+    BotCommand("summary", "This week's summary"),
+    BotCommand("tasks", "View and edit your tasks and their logs"),
+    BotCommand("all_tasks", "Full list of tasks, optionally filtered by status"),
+    BotCommand("all_logs", "Full list of logs, optionally filtered by task/date"),
+    BotCommand("edit", "Directly set any field on a task or log"),
+    BotCommand("search", "Search your work history"),
+    BotCommand("undo", "Remove your last log"),
+    BotCommand("cancel", "Cancel whatever it's currently asking you"),
+    BotCommand("settings", "Show current configuration"),
+    BotCommand("help", "Show help"),
+]
 
 
 def build_application(settings: Settings, container: Container) -> Application:
@@ -39,6 +56,13 @@ def build_application(settings: Settings, container: Container) -> Application:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
 
     return application
+
+
+async def configure_bot_commands(application: Application) -> None:
+    """Registers the "/" autocomplete menu. Safe to call on every startup —
+    Telegram just overwrites the previous list."""
+    await application.bot.set_my_commands(BOT_COMMANDS)
+    logger.info("telegram_commands_configured", extra={"count": len(BOT_COMMANDS)})
 
 
 async def configure_webhook(application: Application, settings: Settings) -> None:
