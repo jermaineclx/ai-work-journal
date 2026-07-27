@@ -24,7 +24,6 @@ class SearchResultLog(BaseModel):
     task_title: str
     date: date
     original_message: str
-    status: TaskStatus | None
 
 
 class SearchResponse(BaseModel):

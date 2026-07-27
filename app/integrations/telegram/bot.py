@@ -24,6 +24,7 @@ BOT_COMMANDS = [
     BotCommand("today", "What you've logged today"),
     BotCommand("summary", "This week's summary"),
     BotCommand("tasks", "View and edit your tasks and their logs"),
+    BotCommand("logs", "Your 10 most recent logs, tap to view/edit"),
     BotCommand("all_tasks", "Full list of tasks, optionally filtered by status"),
     BotCommand("all_logs", "Full list of logs, optionally filtered by task/date"),
     BotCommand("edit", "Directly set any field on a task or log"),
@@ -46,6 +47,7 @@ def build_application(settings: Settings, container: Container) -> Application:
     application.add_handler(CommandHandler("today", handlers.cmd_today))
     application.add_handler(CommandHandler("summary", handlers.cmd_summary))
     application.add_handler(CommandHandler("tasks", handlers.cmd_tasks))
+    application.add_handler(CommandHandler("logs", handlers.cmd_logs))
     application.add_handler(CommandHandler("all_tasks", handlers.cmd_all_tasks))
     application.add_handler(CommandHandler("all_logs", handlers.cmd_all_logs))
     application.add_handler(CommandHandler("edit", handlers.cmd_edit))

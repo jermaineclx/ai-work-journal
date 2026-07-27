@@ -5,9 +5,14 @@ from __future__ import annotations
 TASKS_WORKSHEET_TITLE = "Tasks"
 DAILY_LOGS_WORKSHEET_TITLE = "Daily Logs"
 
+# These must exactly match row 1 of the live Google Sheet — order matters
+# for writes (append_row/update_row_by_key build values positionally from
+# this list) even though reads are name-keyed and therefore order-agnostic.
 TASKS_HEADER = [
     "Task ID",
+    "Priority",
     "Task Name",
+    "Summary",
     "Stakeholder",
     "Status",
     "Tags",
@@ -15,27 +20,20 @@ TASKS_HEADER = [
     "Date Created",
     "Last Updated",
     "Total Updates",
-    "Summary",
-    # Appended (not inserted) — a live sheet already has data in the columns
-    # above; adding a new column must go at the end so existing rows' cells
-    # keep mapping to the same header they always did.
-    "Priority",
 ]
 
 DAILY_LOGS_HEADER = [
     "Log ID",
     "Date",
     "Task ID",
-    "Original Message",
+    "Log Summary",
     "Stakeholder",
-    "Status",
     "Next Steps",
     "Resources",
     "Tags",
     "Impact",
     "Timestamp",
-    # Appended, same reasoning as Priority above — keeps existing rows aligned.
-    "Log Summary",
+    "Original Message",
 ]
 
 TASK_ID_PREFIX = "T"

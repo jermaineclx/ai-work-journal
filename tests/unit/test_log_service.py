@@ -313,9 +313,6 @@ async def test_edit_log_fields_update_the_stored_log():
     updated = await service.edit_log_stakeholder(log_id, ["Priya Shah"])
     assert updated.stakeholder == ["Priya Shah"]
 
-    updated = await service.edit_log_status(log_id, TaskStatus.COMPLETED)
-    assert updated.status == TaskStatus.COMPLETED
-
     updated = await service.edit_log_next_steps(log_id, "Ship next week")
     assert updated.next_steps == "Ship next week"
 

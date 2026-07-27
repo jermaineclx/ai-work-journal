@@ -44,7 +44,6 @@ def test_daily_log_round_trips_through_row_mapping():
         date=date(2026, 7, 26),
         original_message="Finance approved the SQL fix. QA tomorrow.",
         stakeholder=["Finance"],
-        status=TaskStatus.KIV,
         next_steps="QA tomorrow",
         resources=["Settlement SQL"],
         tags=["SQL", "Finance"],
@@ -60,7 +59,6 @@ def test_daily_log_round_trips_through_row_mapping():
     assert restored.date == log.date
     assert restored.original_message == log.original_message
     assert restored.stakeholder == log.stakeholder
-    assert restored.status == log.status
     assert restored.next_steps == log.next_steps
     assert restored.resources == log.resources
     assert restored.tags == log.tags
@@ -75,7 +73,6 @@ def test_daily_log_row_mapping_handles_missing_optional_fields():
         "Task ID": "T002",
         "Original Message": "Quick check-in with Product.",
         "Stakeholder": "",
-        "Status": "",
         "Next Steps": "",
         "Resources": "",
         "Tags": "",
@@ -84,7 +81,6 @@ def test_daily_log_row_mapping_handles_missing_optional_fields():
     }
     log = row_to_daily_log(row)
     assert log.stakeholder == []
-    assert log.status is None
     assert log.next_steps is None
     assert log.resources == []
     assert log.tags == []
@@ -117,14 +113,15 @@ def test_row_to_task_maps_legacy_status_values_instead_of_crashing():
     assert task.priority is None
 
 
-def test_row_to_daily_log_maps_legacy_status_values_instead_of_crashing():
+def test_row_to_daily_log_handles_missing_log_summary_column():
+    """This row predates the Log Summary column entirely — must default to
+    an empty string, not crash."""
     row = {
         "Log ID": "L0001",
         "Date": "2026-07-26",
         "Task ID": "T001",
         "Original Message": "Waiting on QA.",
         "Stakeholder": "Liyuan",
-        "Status": "Ready for Deployment",
         "Next Steps": "",
         "Resources": "",
         "Tags": "",
@@ -134,7 +131,4 @@ def test_row_to_daily_log_maps_legacy_status_values_instead_of_crashing():
 
     log = row_to_daily_log(row)
 
-    assert log.status == TaskStatus.KIV
-    # This row predates the Log Summary column entirely — must default to
-    # an empty string, not crash.
     assert log.log_summary == ""

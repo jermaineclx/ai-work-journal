@@ -115,7 +115,6 @@ def render_log_detail(log: DailyLog, task_title: str) -> str:
         f"Summary: {log.log_summary or '(none yet)'}",
         "",
         f"Stakeholder: {_fmt_stakeholders(log.stakeholder)}",
-        f"Status: {log.status.value if log.status else '—'}",
         f"Next steps: {log.next_steps or '—'}",
         f"Resources: {', '.join(log.resources) if log.resources else '—'}",
         f"Tags: {', '.join(log.tags) if log.tags else '—'}",
@@ -176,7 +175,6 @@ def render_all_logs(logs: list[DailyLog], tasks_by_id: dict[str, Task]) -> list[
             f"Message: {log.original_message}\n"
             f"Summary: {log.log_summary or '(none yet)'}\n"
             f"Stakeholder: {_fmt_stakeholders(log.stakeholder)}\n"
-            f"Status: {log.status.value if log.status else '—'}\n"
             f"Next steps: {log.next_steps or '—'}\n"
             f"Resources: {', '.join(log.resources) if log.resources else '—'}\n"
             f"Tags: {', '.join(log.tags) if log.tags else '—'}\n"

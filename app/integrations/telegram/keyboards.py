@@ -104,23 +104,29 @@ def build_log_detail_keyboard(log_id: str, task_id: str) -> InlineKeyboardMarkup
         [
             [
                 InlineKeyboardButton("👤 Stakeholder", callback_data=f"lfield:stakeholder:{log_id}"),
-                InlineKeyboardButton("🔄 Status", callback_data=f"lstatus:{log_id}"),
-            ],
-            [
                 InlineKeyboardButton("➡️ Next Steps", callback_data=f"lfield:next_steps:{log_id}"),
+            ],
+            [
                 InlineKeyboardButton("🏷 Tags", callback_data=f"lfield:tags:{log_id}"),
-            ],
-            [
                 InlineKeyboardButton("🔗 Resources", callback_data=f"lfield:resources:{log_id}"),
-                InlineKeyboardButton("📅 Date", callback_data=f"lfield:date:{log_id}"),
             ],
             [
+                InlineKeyboardButton("📅 Date", callback_data=f"lfield:date:{log_id}"),
                 InlineKeyboardButton("💥 Impact", callback_data=f"limpact:{log_id}"),
-                InlineKeyboardButton("📝 Summary", callback_data=f"lfield:log_summary:{log_id}"),
             ],
+            [InlineKeyboardButton("📝 Summary", callback_data=f"lfield:log_summary:{log_id}")],
             [InlineKeyboardButton("⬅️ Back to Task", callback_data=f"tview:{task_id}")],
         ]
     )
+
+
+def build_recent_logs_keyboard(logs: list[DailyLog], tasks_by_id: dict[str, Task]) -> InlineKeyboardMarkup:
+    rows = []
+    for log in logs[:10]:
+        task = tasks_by_id.get(log.task_id)
+        label = f"{log.date.isoformat()} — {_short(task.title if task else log.task_id, 20)}"
+        rows.append([InlineKeyboardButton(label, callback_data=f"lview:{log.log_id}")])
+    return InlineKeyboardMarkup(rows)
 
 
 def build_impact_picker_keyboard(log_id: str) -> InlineKeyboardMarkup:

@@ -232,18 +232,17 @@ class LogService:
             logs = [log for log in logs if log.date == on_date]
         return sorted(logs, key=lambda log: log.timestamp, reverse=True)
 
+    async def list_recent_logs(self, limit: int = 10) -> list[DailyLog]:
+        """Most-recent-first across all tasks — backs the /logs command."""
+        logs = await self._logs.get_all()
+        return sorted(logs, key=lambda log: log.timestamp, reverse=True)[:limit]
+
     async def get_log(self, log_id: str) -> DailyLog:
         return await self._logs.require_by_id(log_id)
 
     async def edit_log_stakeholder(self, log_id: str, stakeholder: list[str]) -> DailyLog:
         log = await self._logs.require_by_id(log_id)
         log.stakeholder = stakeholder
-        await self._logs.update_extracted_fields(log)
-        return log
-
-    async def edit_log_status(self, log_id: str, status: TaskStatus) -> DailyLog:
-        log = await self._logs.require_by_id(log_id)
-        log.status = status
         await self._logs.update_extracted_fields(log)
         return log
 
@@ -336,7 +335,6 @@ class LogService:
             date=date.today(),
             original_message=message,
             stakeholder=ai_output.extraction.stakeholder,
-            status=status,
             next_steps=ai_output.extraction.next_steps,
             resources=ai_output.resources.resources,
             tags=ai_output.tags.tags,

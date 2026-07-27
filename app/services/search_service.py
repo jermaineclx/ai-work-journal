@@ -80,7 +80,6 @@ class SearchService:
                         task_title=task.title if task else log.task_id,
                         date=log.date,
                         original_message=log.original_message,
-                        status=log.status,
                     ),
                 )
             )

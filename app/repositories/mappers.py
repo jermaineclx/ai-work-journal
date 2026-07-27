@@ -91,7 +91,6 @@ def daily_log_to_row(log: DailyLog) -> dict[str, Any]:
         "Task ID": log.task_id,
         "Original Message": log.original_message,
         "Stakeholder": _join(log.stakeholder, _STAKEHOLDER_SEP),
-        "Status": log.status.value if log.status else "",
         "Next Steps": log.next_steps or "",
         "Resources": _join(log.resources, _RESOURCE_SEP),
         "Tags": _join(log.tags, _TAG_SEP),
@@ -102,14 +101,12 @@ def daily_log_to_row(log: DailyLog) -> dict[str, Any]:
 
 
 def row_to_daily_log(record: dict[str, Any]) -> DailyLog:
-    status_value = record.get("Status")
     return DailyLog(
         log_id=str(record["Log ID"]),
         task_id=str(record["Task ID"]),
         date=_parse_date(record.get("Date")).date(),
         original_message=str(record["Original Message"]),
         stakeholder=_split(str(record.get("Stakeholder", "")), _STAKEHOLDER_SEP),
-        status=_parse_status(status_value) if status_value else None,
         next_steps=str(record.get("Next Steps") or "") or None,
         resources=_split(str(record.get("Resources", "")), _RESOURCE_SEP),
         tags=_split(str(record.get("Tags", "")), _TAG_SEP),

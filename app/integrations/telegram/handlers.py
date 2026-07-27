@@ -39,6 +39,7 @@ from app.integrations.telegram.keyboards import (
     build_log_detail_keyboard,
     build_log_list_keyboard,
     build_priority_picker_keyboard,
+    build_recent_logs_keyboard,
     build_stakeholder_picker,
     build_status_picker_keyboard,
     build_task_detail_keyboard,
@@ -55,6 +56,7 @@ HELP_TEXT = (
     "/today — what you've logged today\n"
     "/summary — this week's summary\n"
     "/tasks — view and edit your tasks and their logs (tap-through)\n"
+    "/logs — your 10 most recent logs, tap into any to view/edit (tap-through)\n"
     "/all_tasks [status] — every task, all columns, e.g. /all_tasks in progress\n"
     "/all_logs [task_id] [date] — every log, optionally filtered, e.g. /all_logs T001 today\n"
     "/edit task|log <id> <field> <value> — directly set any field, e.g. "
@@ -68,7 +70,7 @@ HELP_TEXT = (
 _TASK_ID_PATTERN = re.compile(r"^[Tt]\d+$")
 
 _TASK_EDITABLE_FIELDS = ["title", "stakeholder", "status", "priority", "tags", "resources", "summary"]
-_LOG_EDITABLE_FIELDS = ["date", "stakeholder", "status", "next_steps", "tags", "resources", "impact", "log_summary"]
+_LOG_EDITABLE_FIELDS = ["date", "stakeholder", "next_steps", "tags", "resources", "impact", "log_summary"]
 
 
 def _parse_status(value: str) -> TaskStatus | None:
@@ -400,11 +402,15 @@ async def _add_log_to_task(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         outcome = await container.log_service.log_to_task_explicitly(
             request_id=request_id, task_id=task_id, message=message, ai_output=ai_output
         )
+        log = await container.log_service.get_log(outcome.log_id)
     except Exception:  # noqa: BLE001
         logger.exception("add_log_to_task_failed", extra={"task_id": task_id})
         await update.message.reply_text("Something went wrong logging that. Please try again.")
         return
-    await update.message.reply_text(render_committed(outcome))
+    await update.message.reply_text(
+        f"✅ Logged successfully\n\n{render_log_detail(log, outcome.task_title)}",
+        reply_markup=build_log_detail_keyboard(log.log_id, log.task_id),
+    )
 
 
 async def _apply_log_field_edit(
@@ -434,14 +440,6 @@ async def _apply_log_field_edit(
                 await update.message.reply_text("Date must be in YYYY-MM-DD format, e.g. 2026-07-27.")
                 return
             log = await container.log_service.edit_log_date(log_id, parsed)
-        elif field == "status":
-            status = _parse_status(value)
-            if status is None:
-                await update.message.reply_text(
-                    f"Unknown status '{value}'. Valid: {', '.join(s.value for s in TaskStatus)}"
-                )
-                return
-            log = await container.log_service.edit_log_status(log_id, status)
         elif field == "impact":
             impact = _parse_impact(value)
             if impact is None:
@@ -593,22 +591,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(_field_prompt(field, "log"))
             return
 
-        if action == "lstatus":
-            await query.edit_message_text(
-                "Pick a status:", reply_markup=build_status_picker_keyboard("lsetstatus", rest)
-            )
-            return
-
-        if action == "lsetstatus":
-            log_id, idx = rest.split(":")
-            status = list(TaskStatus)[int(idx)]
-            log = await container.log_service.edit_log_status(log_id, status)
-            task = await container.task_service.get_task(log.task_id)
-            await query.edit_message_text(
-                render_log_detail(log, task.title), reply_markup=build_log_detail_keyboard(log.log_id, log.task_id)
-            )
-            return
-
         if action == "limpact":
             await query.edit_message_text("Pick an impact level:", reply_markup=build_impact_picker_keyboard(rest))
             return
@@ -676,6 +658,16 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("No tasks yet — send me an update to create your first one.")
         return
     await update.message.reply_text("Your tasks:", reply_markup=build_task_list_keyboard(tasks))
+
+
+async def cmd_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    container = _container(context)
+    logs = await container.log_service.list_recent_logs(limit=10)
+    if not logs:
+        await update.message.reply_text("No logs yet — send me an update to create your first one.")
+        return
+    tasks_by_id = {t.task_id: t for t in await container.task_service.list_tasks()}
+    await update.message.reply_text("Your latest logs:", reply_markup=build_recent_logs_keyboard(logs, tasks_by_id))
 
 
 async def cmd_all_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -815,6 +807,7 @@ __all__ = [
     "cmd_today",
     "cmd_summary",
     "cmd_tasks",
+    "cmd_logs",
     "cmd_all_tasks",
     "cmd_all_logs",
     "cmd_edit",

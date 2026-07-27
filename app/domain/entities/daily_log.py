@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from app.domain.enums import ImpactLevel, TaskStatus
+from app.domain.enums import ImpactLevel
 from app.utils.time import utcnow_naive
 
 
@@ -22,7 +22,6 @@ class DailyLog:
     date: date
     original_message: str
     stakeholder: list[str]
-    status: TaskStatus | None
     next_steps: str | None
     resources: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
