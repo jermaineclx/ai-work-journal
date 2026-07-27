@@ -22,7 +22,6 @@ from app.schemas.ai import (
     MatchResult,
     ResourceResult,
     StatusResult,
-    SummaryResult,
     TagResult,
 )
 from app.services.log_service import LogService
@@ -132,11 +131,6 @@ class FakeOrchestrator:
         return self.output
 
 
-class FakeSummaryAgent:
-    async def run(self, *, task_title, current_summary, message, status):
-        return SummaryResult(summary=f"Summary after: {message}"), "generate_summary_v1"
-
-
 class FakeEmbeddingRefresher:
     def __init__(self):
         self.refreshed: list[str] = []
@@ -174,7 +168,6 @@ def _make_service(ai_output: AIPipelineOutput, *, task_repo=None):
     return (
         LogService(
             orchestrator=FakeOrchestrator(ai_output),
-            summary_agent=FakeSummaryAgent(),
             embedding_refresher=FakeEmbeddingRefresher(),
             task_repo=task_repo,
             log_repo=FakeDailyLogRepository(),
@@ -494,11 +487,10 @@ async def test_log_to_task_explicitly_is_idempotent_on_request_id():
 
 
 @pytest.mark.asyncio
-async def test_commit_does_not_block_on_summary_or_embedding_refresh():
-    """The confirmation the user sees doesn't show the summary, so
-    regenerating it (and refreshing the embedding) must not be part of
-    what process_message() awaits — only the caller explicitly waiting
-    for background tasks should observe their effects."""
+async def test_commit_leaves_summary_untouched_and_does_not_block_on_embedding_refresh():
+    """A new log never rewrites task.summary (only edit_summary or the
+    completed-task impact prompt do) — and the embedding refresh that does
+    run must not be part of what process_message() awaits."""
     task_repo = FakeTaskRepository()
     await task_repo.create(
         Task(
@@ -514,10 +506,10 @@ async def test_commit_does_not_block_on_summary_or_embedding_refresh():
 
     await service.process_message(request_id="req-12", user_id="u1", message="Finance approved.")
 
-    # Immediately after awaiting process_message, the background summary
-    # regeneration may or may not have run yet — either is valid, since
-    # nothing in the returned outcome depends on it.
+    # Immediately after awaiting process_message, the background embedding
+    # refresh may or may not have run yet — either is valid, since nothing
+    # in the returned outcome depends on it.
     await wait_for_background_tasks()
 
-    assert task_repo.tasks["T001"].summary == "Summary after: Finance approved."
+    assert task_repo.tasks["T001"].summary == "Old summary."
     assert "T001" in service._embeddings.refreshed

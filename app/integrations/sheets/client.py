@@ -104,6 +104,36 @@ class GoogleSheetsClient:
 
         await _with_retry(_ensure, spreadsheet)
 
+    async def set_dropdown_validation(
+        self, spreadsheet_id: str, worksheet_title: str, *, header: list[str], column_name: str, values: list[str]
+    ) -> None:
+        """Applies a native single-select dropdown (Data validation, list
+        of items) to every data row of one column, so editing that column
+        directly in Sheets is constrained to `values`. Re-applying is
+        idempotent — safe to call on every boot, same as ensure_worksheet's
+        header sync.
+
+        Google Sheets' multi-select "chip" dropdown style has no API
+        equivalent (as of writing, only settable by hand in the UI) — this
+        only produces the classic single-value arrow dropdown, so it's
+        only appropriate for single-valued columns like Status.
+        """
+        spreadsheet = await _with_retry(self._gc.open_by_key, spreadsheet_id)
+
+        def _apply(ss: gspread.Spreadsheet) -> None:
+            worksheet = ss.worksheet(worksheet_title)
+            col_idx = header.index(column_name) + 1
+            # rowcol_to_a1(1, n) always yields "<COLUMN_LETTERS>1" — column
+            # letters are never digits, so stripping the trailing "1" from
+            # row=1 leaves exactly the column letters, safely at any width.
+            col_letter = gspread.utils.rowcol_to_a1(1, col_idx).rstrip("1")
+            cell_range = f"{col_letter}2:{col_letter}{worksheet.row_count}"
+            worksheet.add_validation(
+                cell_range, gspread.utils.ValidationConditionType.one_of_list, values, strict=True, showCustomUi=True
+            )
+
+        await _with_retry(_apply, spreadsheet)
+
     async def get_all_records(self, spreadsheet_id: str, worksheet_title: str) -> list[dict[str, Any]]:
         spreadsheet = await _with_retry(self._gc.open_by_key, spreadsheet_id)
         worksheet = await _with_retry(spreadsheet.worksheet, worksheet_title)

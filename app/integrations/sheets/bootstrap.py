@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.core.constants import DAILY_LOGS_HEADER, DAILY_LOGS_WORKSHEET_TITLE, TASKS_HEADER, TASKS_WORKSHEET_TITLE
 from app.core.exceptions import SheetsIntegrationError
 from app.core.logging import get_logger
+from app.domain.enums import TaskStatus
 from app.integrations.sheets.client import GoogleSheetsClient
 from app.repositories.memory_repository import MemoryRepository
 
@@ -61,6 +62,13 @@ async def ensure_spreadsheet(
     try:
         await sheets.ensure_worksheet(spreadsheet_id, TASKS_WORKSHEET_TITLE, TASKS_HEADER)
         await sheets.ensure_worksheet(spreadsheet_id, DAILY_LOGS_WORKSHEET_TITLE, DAILY_LOGS_HEADER)
+        await sheets.set_dropdown_validation(
+            spreadsheet_id,
+            TASKS_WORKSHEET_TITLE,
+            header=TASKS_HEADER,
+            column_name="Status",
+            values=[s.value for s in TaskStatus],
+        )
     except SheetsIntegrationError:
         logger.error("failed_to_provision_worksheets", extra={"spreadsheet_id": spreadsheet_id})
         raise
