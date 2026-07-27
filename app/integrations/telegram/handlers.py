@@ -145,6 +145,16 @@ def _clear_flow(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("ntpick_options", None)
 
 
+async def _render_commit_confirmation(container: Container, outcome):
+    """A newly created task prints its full detail (with its edit
+    keyboard) so you can see what the AI drafted; logging against an
+    existing task keeps the terser render_committed summary."""
+    if outcome.is_new_task:
+        task = await container.task_service.get_task(outcome.task_id)
+        return f"🆕 New task created\n\n{render_task_detail(task)}", build_task_detail_keyboard(task.task_id)
+    return render_committed(outcome), None
+
+
 # --- Primary message handling ---
 
 
@@ -174,7 +184,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if outcome.status == "committed":
-        await update.message.reply_text(render_committed(outcome))
+        text, keyboard = await _render_commit_confirmation(container, outcome)
+        await update.message.reply_text(text, reply_markup=keyboard)
     else:
         keyboard = build_confirmation_keyboard(outcome.request_id, outcome.decision) if outcome.decision else None
         await update.message.reply_text(render_pending(outcome), reply_markup=keyboard)
@@ -205,7 +216,8 @@ async def _handle_flow_message(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.exception("create_task_explicitly_failed")
             await update.message.reply_text("Something went wrong creating that task. Please try again.")
             return
-        await update.message.reply_text(render_committed(outcome))
+        text, keyboard = await _render_commit_confirmation(container, outcome)
+        await update.message.reply_text(text, reply_markup=keyboard)
         return
 
     if flow_type == "edit_task":
@@ -484,7 +496,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if action == "new":
             outcome = await container.log_service.confirm(request_id=rest, chosen_task_id=None, create_new=True)
-            await query.edit_message_text(render_committed(outcome))
+            text, keyboard = await _render_commit_confirmation(container, outcome)
+            await query.edit_message_text(text, reply_markup=keyboard)
             return
 
         if action == "choose":
@@ -623,7 +636,8 @@ async def _handle_ntpick(query, context: ContextTypes.DEFAULT_TYPE, container: C
     stakeholder = options[int(rest)]
     _clear_flow(context)
     outcome = await _create_task_from_flow(container, flow["ai_output"], flow["message"], [stakeholder])
-    await query.edit_message_text(render_committed(outcome))
+    text, keyboard = await _render_commit_confirmation(container, outcome)
+    await query.edit_message_text(text, reply_markup=keyboard)
 
 
 # --- Commands ---
