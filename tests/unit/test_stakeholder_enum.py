@@ -23,7 +23,7 @@ def test_parse_returns_none_for_unknown_or_empty():
     assert Stakeholder.parse("") is None
 
 
-def test_roster_has_exactly_the_expected_eight_names():
+def test_roster_has_exactly_the_expected_eleven_names():
     assert {s.value for s in Stakeholder} == {
         "Liyuan",
         "Ammir",
@@ -33,4 +33,7 @@ def test_roster_has_exactly_the_expected_eight_names():
         "Jeremy",
         "Nicole Ong",
         "Ee Xuen",
+        "Karleng",
+        "Eugene",
+        "Yan Ting",
     }

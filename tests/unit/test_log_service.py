@@ -524,17 +524,22 @@ async def test_commit_leaves_existing_task_summary_untouched_and_does_not_block_
 
 
 @pytest.mark.asyncio
-async def test_creating_a_task_generates_its_initial_summary_in_the_background():
+async def test_creating_a_task_generates_its_initial_summary_before_returning():
     """A brand new task has nothing to summarise yet, so — unlike an
     existing task — it gets one initial AI-written summary at creation
-    time. This still doesn't block the caller."""
+    time. Awaited synchronously (not backgrounded like embedding refresh)
+    so the confirmation the caller renders right after already has it."""
     ai_output = _build_ai_output(matched_task_id=None, confidence=0.4, task_title="New Dashboard")
     service, task_repo = _make_service(ai_output)
 
     outcome = await service.create_task_explicitly(
         request_id="req-new-summary", message="Kicked off the new dashboard.", ai_output=ai_output
     )
-    await wait_for_background_tasks()
 
     assert task_repo.tasks[outcome.task_id].summary == "Summary after: Kicked off the new dashboard."
+    assert outcome.summary == "Summary after: Kicked off the new dashboard."
+
+    # Embedding refresh is still backgrounded — either state is valid right
+    # after the await, only wait_for_background_tasks() guarantees it ran.
+    await wait_for_background_tasks()
     assert outcome.task_id in service._embeddings.refreshed

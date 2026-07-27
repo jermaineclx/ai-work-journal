@@ -22,7 +22,7 @@ from app.core.config import Settings
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.domain.entities import DailyLog, Task
-from app.domain.enums import DecisionAction, ImpactLevel, TaskStatus
+from app.domain.enums import DecisionAction, ImpactLevel
 from app.domain.rules.decision import TaskMatchCandidate, decide
 from app.repositories import DailyLogRepository, MemoryRepository, TaskRepository
 from app.schemas.ai import AIPipelineOutput
@@ -344,17 +344,22 @@ class LogService:
         )
         await self._logs.append(daily_log)
 
-        # Neither step touches the confirmation message (render_committed
-        # never displays the summary) and only matters for *future* task
-        # matching — run in the background instead of making the user wait.
-        # A brand new task gets its first AI-written summary here (it has
-        # nothing to summarise yet); an existing task's summary is left
-        # untouched by a new log — only an explicit edit_summary or the
-        # completed-task impact prompt change it after that.
-        fire_and_forget(
-            self._post_commit(task, message=message, status=status, generate_summary=create_new),
-            name="post_commit",
-        )
+        if create_new:
+            # A brand new task has nothing to summarise yet, so — unlike an
+            # existing task, whose summary a new log never touches — it gets
+            # one initial AI-written summary here. Awaited (not backgrounded)
+            # because the confirmation the caller is about to render shows
+            # this task's full detail, summary included.
+            summary_result, _ = await self._summary_agent.run(
+                task_title=task.title, current_summary=task.summary, message=message, status=status
+            )
+            task.summary = summary_result.summary
+            await self._tasks.update(task)
+
+        # Embedding refresh touches nothing the confirmation shows and only
+        # matters for *future* task matching — run it in the background
+        # instead of making the user wait on it too.
+        fire_and_forget(self._embeddings.refresh(task), name="post_commit_embedding_refresh")
 
         return LogOutcome(
             status="committed",
@@ -369,12 +374,3 @@ class LogService:
             tags=task.tags,
             log_id=log_id,
         )
-
-    async def _post_commit(self, task: Task, *, message: str, status: TaskStatus, generate_summary: bool) -> None:
-        if generate_summary:
-            summary_result, _ = await self._summary_agent.run(
-                task_title=task.title, current_summary=task.summary, message=message, status=status
-            )
-            task.summary = summary_result.summary
-            await self._tasks.update(task)
-        await self._embeddings.refresh(task)

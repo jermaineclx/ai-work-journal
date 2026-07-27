@@ -28,6 +28,9 @@ class Stakeholder(str, Enum):
     JEREMY = "Jeremy"
     NICOLE_ONG = "Nicole Ong"
     EE_XUEN = "Ee Xuen"
+    KARLENG = "Karleng"
+    EUGENE = "Eugene"
+    YAN_TING = "Yan Ting"
 
     @classmethod
     def parse(cls, value: str | None) -> Stakeholder | None:
