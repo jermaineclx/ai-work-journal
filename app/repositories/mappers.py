@@ -42,6 +42,13 @@ def _parse_priority(value: Any) -> Priority | None:
     return Priority.parse(str(value)) if value else None
 
 
+def _parse_impact(value: Any) -> ImpactLevel:
+    try:
+        return ImpactLevel(value) if value else ImpactLevel.INFORMATIONAL
+    except ValueError:
+        return ImpactLevel.INFORMATIONAL
+
+
 def _join(values: list[str], sep: str) -> str:
     return sep.join(v for v in values if v)
 
@@ -110,7 +117,7 @@ def row_to_daily_log(record: dict[str, Any]) -> DailyLog:
         next_steps=str(record.get("Next Steps") or "") or None,
         resources=_split(str(record.get("Resources", "")), _RESOURCE_SEP),
         tags=_split(str(record.get("Tags", "")), _TAG_SEP),
-        impact=ImpactLevel(record.get("Impact") or ImpactLevel.INFORMATIONAL.value),
+        impact=_parse_impact(record.get("Impact")),
         timestamp=_parse_datetime(record.get("Timestamp")),
         log_summary=str(record.get("Log Summary") or ""),
     )

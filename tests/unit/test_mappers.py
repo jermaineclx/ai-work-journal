@@ -132,3 +132,25 @@ def test_row_to_daily_log_handles_missing_log_summary_column():
     log = row_to_daily_log(row)
 
     assert log.log_summary == ""
+
+
+def test_row_to_daily_log_defaults_to_informational_on_unrecognised_impact_value():
+    """A row whose Impact cell holds something that isn't a valid
+    ImpactLevel (e.g. from a header/data misalignment after a manual
+    column reorder) must still load rather than raise ValueError."""
+    row = {
+        "Log ID": "L0003",
+        "Date": "2026-07-27",
+        "Task ID": "T003",
+        "Original Message": "Shipped the new dashboard.",
+        "Stakeholder": "Liyuan",
+        "Next Steps": "",
+        "Resources": "",
+        "Tags": "",
+        "Impact": "AI, Automation, Dashboard",
+        "Timestamp": "2026-07-27T09:00:00",
+    }
+
+    log = row_to_daily_log(row)
+
+    assert log.impact == ImpactLevel.INFORMATIONAL
