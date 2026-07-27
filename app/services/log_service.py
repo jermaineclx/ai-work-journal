@@ -17,11 +17,12 @@ from datetime import date
 
 from app.ai.embeddings import EmbeddingRefresher
 from app.ai.orchestrator import AIOrchestrator
+from app.ai.summarisation import SummaryAgent
 from app.core.config import Settings
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.domain.entities import DailyLog, Task
-from app.domain.enums import DecisionAction, ImpactLevel
+from app.domain.enums import DecisionAction, ImpactLevel, TaskStatus
 from app.domain.rules.decision import TaskMatchCandidate, decide
 from app.repositories import DailyLogRepository, MemoryRepository, TaskRepository
 from app.schemas.ai import AIPipelineOutput
@@ -38,6 +39,7 @@ class LogService:
         self,
         *,
         orchestrator: AIOrchestrator,
+        summary_agent: SummaryAgent,
         embedding_refresher: EmbeddingRefresher,
         task_repo: TaskRepository,
         log_repo: DailyLogRepository,
@@ -45,6 +47,7 @@ class LogService:
         settings: Settings,
     ) -> None:
         self._orchestrator = orchestrator
+        self._summary_agent = summary_agent
         self._embeddings = embedding_refresher
         self._tasks = task_repo
         self._logs = log_repo
@@ -341,13 +344,17 @@ class LogService:
         )
         await self._logs.append(daily_log)
 
-        # Embedding refresh touches nothing the confirmation message shows
-        # and only matters for *future* task matching — run it after the
-        # user already has everything they need instead of making them
-        # wait on another embedding call. task.summary is left untouched by
-        # a new log; only explicit edits (edit_summary) or the completed-
-        # task impact prompt change it.
-        fire_and_forget(self._embeddings.refresh(task), name="post_commit_embedding_refresh")
+        # Neither step touches the confirmation message (render_committed
+        # never displays the summary) and only matters for *future* task
+        # matching — run in the background instead of making the user wait.
+        # A brand new task gets its first AI-written summary here (it has
+        # nothing to summarise yet); an existing task's summary is left
+        # untouched by a new log — only an explicit edit_summary or the
+        # completed-task impact prompt change it after that.
+        fire_and_forget(
+            self._post_commit(task, message=message, status=status, generate_summary=create_new),
+            name="post_commit",
+        )
 
         return LogOutcome(
             status="committed",
@@ -362,3 +369,12 @@ class LogService:
             tags=task.tags,
             log_id=log_id,
         )
+
+    async def _post_commit(self, task: Task, *, message: str, status: TaskStatus, generate_summary: bool) -> None:
+        if generate_summary:
+            summary_result, _ = await self._summary_agent.run(
+                task_title=task.title, current_summary=task.summary, message=message, status=status
+            )
+            task.summary = summary_result.summary
+            await self._tasks.update(task)
+        await self._embeddings.refresh(task)

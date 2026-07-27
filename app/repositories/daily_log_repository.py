@@ -16,9 +16,12 @@ from datetime import date
 
 from app.core.constants import DAILY_LOGS_HEADER, DAILY_LOGS_WORKSHEET_TITLE, LOG_ID_PREFIX
 from app.core.exceptions import NotFoundError
+from app.core.logging import get_logger
 from app.domain.entities import DailyLog
 from app.integrations.sheets.client import GoogleSheetsClient
 from app.repositories.mappers import daily_log_to_row, row_to_daily_log
+
+logger = get_logger(__name__)
 
 
 class DailyLogRepository:
@@ -27,8 +30,21 @@ class DailyLogRepository:
         self._spreadsheet_id = spreadsheet_id
 
     async def get_all(self) -> list[DailyLog]:
+        """Mapper functions are already defensive about malformed cell
+        values (04_AI_DESIGN.MD graceful-degradation pattern), but this is
+        a last-resort backstop: one row we genuinely can't parse must never
+        take down every other read (next_log_id, get_latest, etc. all funnel
+        through here) — skip it and log instead of raising."""
         records = await self._sheets.get_all_records(self._spreadsheet_id, DAILY_LOGS_WORKSHEET_TITLE)
-        return [row_to_daily_log(r) for r in records if r.get("Log ID")]
+        logs = []
+        for r in records:
+            if not r.get("Log ID"):
+                continue
+            try:
+                logs.append(row_to_daily_log(r))
+            except Exception:  # noqa: BLE001
+                logger.warning("skipping_unparseable_daily_log_row", extra={"log_id": r.get("Log ID")})
+        return logs
 
     async def get_by_task(self, task_id: str) -> list[DailyLog]:
         return [log for log in await self.get_all() if log.task_id == task_id]

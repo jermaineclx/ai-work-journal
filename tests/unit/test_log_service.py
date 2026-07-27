@@ -22,6 +22,7 @@ from app.schemas.ai import (
     MatchResult,
     ResourceResult,
     StatusResult,
+    SummaryResult,
     TagResult,
 )
 from app.services.log_service import LogService
@@ -131,6 +132,11 @@ class FakeOrchestrator:
         return self.output
 
 
+class FakeSummaryAgent:
+    async def run(self, *, task_title, current_summary, message, status):
+        return SummaryResult(summary=f"Summary after: {message}"), "generate_summary_v1"
+
+
 class FakeEmbeddingRefresher:
     def __init__(self):
         self.refreshed: list[str] = []
@@ -168,6 +174,7 @@ def _make_service(ai_output: AIPipelineOutput, *, task_repo=None):
     return (
         LogService(
             orchestrator=FakeOrchestrator(ai_output),
+            summary_agent=FakeSummaryAgent(),
             embedding_refresher=FakeEmbeddingRefresher(),
             task_repo=task_repo,
             log_repo=FakeDailyLogRepository(),
@@ -487,10 +494,11 @@ async def test_log_to_task_explicitly_is_idempotent_on_request_id():
 
 
 @pytest.mark.asyncio
-async def test_commit_leaves_summary_untouched_and_does_not_block_on_embedding_refresh():
-    """A new log never rewrites task.summary (only edit_summary or the
-    completed-task impact prompt do) — and the embedding refresh that does
-    run must not be part of what process_message() awaits."""
+async def test_commit_leaves_existing_task_summary_untouched_and_does_not_block_on_embedding_refresh():
+    """A new log against an *existing* task never rewrites task.summary
+    (only edit_summary or the completed-task impact prompt do) — and the
+    embedding refresh that does run must not be part of what
+    process_message() awaits."""
     task_repo = FakeTaskRepository()
     await task_repo.create(
         Task(
@@ -513,3 +521,20 @@ async def test_commit_leaves_summary_untouched_and_does_not_block_on_embedding_r
 
     assert task_repo.tasks["T001"].summary == "Old summary."
     assert "T001" in service._embeddings.refreshed
+
+
+@pytest.mark.asyncio
+async def test_creating_a_task_generates_its_initial_summary_in_the_background():
+    """A brand new task has nothing to summarise yet, so — unlike an
+    existing task — it gets one initial AI-written summary at creation
+    time. This still doesn't block the caller."""
+    ai_output = _build_ai_output(matched_task_id=None, confidence=0.4, task_title="New Dashboard")
+    service, task_repo = _make_service(ai_output)
+
+    outcome = await service.create_task_explicitly(
+        request_id="req-new-summary", message="Kicked off the new dashboard.", ai_output=ai_output
+    )
+    await wait_for_background_tasks()
+
+    assert task_repo.tasks[outcome.task_id].summary == "Summary after: Kicked off the new dashboard."
+    assert outcome.task_id in service._embeddings.refreshed

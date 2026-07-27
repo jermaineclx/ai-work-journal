@@ -42,6 +42,13 @@ def _parse_priority(value: Any) -> Priority | None:
     return Priority.parse(str(value)) if value else None
 
 
+def _parse_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _parse_impact(value: Any) -> ImpactLevel:
     try:
         return ImpactLevel(value) if value else ImpactLevel.INFORMATIONAL
@@ -86,7 +93,7 @@ def row_to_task(record: dict[str, Any]) -> Task:
         resources=_split(str(record.get("Resources", "")), _RESOURCE_SEP),
         created_at=_parse_date(record.get("Date Created")),
         updated_at=_parse_date(record.get("Last Updated")),
-        total_updates=int(record.get("Total Updates") or 0),
+        total_updates=_parse_int(record.get("Total Updates")),
         priority=_parse_priority(record.get("Priority")),
     )
 
@@ -128,10 +135,16 @@ def _parse_date(value: Any) -> datetime:
         return utcnow_naive()
     if isinstance(value, date):
         return datetime(value.year, value.month, value.day)
-    return datetime.fromisoformat(str(value))
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return utcnow_naive()
 
 
 def _parse_datetime(value: Any) -> datetime:
     if not value:
         return utcnow_naive()
-    return datetime.fromisoformat(str(value))
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return utcnow_naive()

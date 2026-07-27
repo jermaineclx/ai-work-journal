@@ -91,6 +91,7 @@ class Container:
 
         log_service = LogService(
             orchestrator=orchestrator,
+            summary_agent=summary_agent,
             embedding_refresher=embedding_refresher,
             task_repo=task_repo,
             log_repo=log_repo,

@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from app.core.constants import TASK_ID_PREFIX, TASKS_HEADER, TASKS_WORKSHEET_TITLE
 from app.core.exceptions import NotFoundError
+from app.core.logging import get_logger
 from app.domain.entities import Task
 from app.integrations.sheets.client import GoogleSheetsClient
 from app.repositories.mappers import row_to_task, task_to_row
+
+logger = get_logger(__name__)
 
 
 class TaskRepository:
@@ -20,8 +23,19 @@ class TaskRepository:
         self._spreadsheet_id = spreadsheet_id
 
     async def get_all(self) -> list[Task]:
+        """Same backstop as DailyLogRepository.get_all(): one unparseable
+        row must never take down every other read (next_task_id, etc. all
+        funnel through here) — skip it and log instead of raising."""
         records = await self._sheets.get_all_records(self._spreadsheet_id, TASKS_WORKSHEET_TITLE)
-        return [row_to_task(r) for r in records if r.get("Task ID")]
+        tasks = []
+        for r in records:
+            if not r.get("Task ID"):
+                continue
+            try:
+                tasks.append(row_to_task(r))
+            except Exception:  # noqa: BLE001
+                logger.warning("skipping_unparseable_task_row", extra={"task_id": r.get("Task ID")})
+        return tasks
 
     async def get_by_id(self, task_id: str) -> Task | None:
         for task in await self.get_all():
