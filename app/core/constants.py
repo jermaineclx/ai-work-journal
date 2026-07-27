@@ -34,6 +34,8 @@ DAILY_LOGS_HEADER = [
     "Tags",
     "Impact",
     "Timestamp",
+    # Appended, same reasoning as Priority above — keeps existing rows aligned.
+    "Log Summary",
 ]
 
 TASK_ID_PREFIX = "T"

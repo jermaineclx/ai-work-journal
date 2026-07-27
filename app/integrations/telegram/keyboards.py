@@ -113,7 +113,10 @@ def build_log_detail_keyboard(log_id: str, task_id: str) -> InlineKeyboardMarkup
                 InlineKeyboardButton("🔗 Resources", callback_data=f"lfield:resources:{log_id}"),
                 InlineKeyboardButton("📅 Date", callback_data=f"lfield:date:{log_id}"),
             ],
-            [InlineKeyboardButton("💥 Impact", callback_data=f"limpact:{log_id}")],
+            [
+                InlineKeyboardButton("💥 Impact", callback_data=f"limpact:{log_id}"),
+                InlineKeyboardButton("📝 Summary", callback_data=f"lfield:log_summary:{log_id}"),
+            ],
             [InlineKeyboardButton("⬅️ Back to Task", callback_data=f"tview:{task_id}")],
         ]
     )

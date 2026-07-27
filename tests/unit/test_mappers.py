@@ -50,6 +50,7 @@ def test_daily_log_round_trips_through_row_mapping():
         tags=["SQL", "Finance"],
         impact=ImpactLevel.MEDIUM,
         timestamp=datetime(2026, 7, 26, 18, 42, 15),
+        log_summary="Finance approved the settlement fix; QA scheduled for tomorrow.",
     )
     row = daily_log_to_row(log)
     restored = row_to_daily_log(row)
@@ -64,6 +65,7 @@ def test_daily_log_round_trips_through_row_mapping():
     assert restored.resources == log.resources
     assert restored.tags == log.tags
     assert restored.impact == log.impact
+    assert restored.log_summary == log.log_summary
 
 
 def test_daily_log_row_mapping_handles_missing_optional_fields():
@@ -87,6 +89,7 @@ def test_daily_log_row_mapping_handles_missing_optional_fields():
     assert log.resources == []
     assert log.tags == []
     assert log.impact == ImpactLevel.INFORMATIONAL
+    assert log.log_summary == ""
 
 
 def test_row_to_task_maps_legacy_status_values_instead_of_crashing():
@@ -132,3 +135,6 @@ def test_row_to_daily_log_maps_legacy_status_values_instead_of_crashing():
     log = row_to_daily_log(row)
 
     assert log.status == TaskStatus.KIV
+    # This row predates the Log Summary column entirely — must default to
+    # an empty string, not crash.
+    assert log.log_summary == ""

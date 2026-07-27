@@ -23,6 +23,9 @@ class ExtractionResult(BaseModel):
     resource_mentions: list[str] = Field(default_factory=list)
     deliverables: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
+    log_summary: str = Field(
+        default="", description="Coherent, organized restatement of the raw message for future reference"
+    )
     extraction_confidence: float = Field(ge=0.0, le=1.0)
 
 

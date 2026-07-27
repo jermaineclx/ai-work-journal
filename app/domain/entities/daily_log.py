@@ -29,6 +29,10 @@ class DailyLog:
     impact: ImpactLevel = ImpactLevel.INFORMATIONAL
     timestamp: datetime = field(default_factory=utcnow_naive)
     request_id: str = ""
+    # AI-organized, coherent restatement of original_message — for easy
+    # future reference. original_message itself is never touched; this is
+    # a separate, editable field (see LogService.edit_log_summary).
+    log_summary: str = ""
 
     def __post_init__(self) -> None:
         if not self.original_message.strip():

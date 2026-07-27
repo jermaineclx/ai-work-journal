@@ -145,10 +145,16 @@ class FakeEmbeddingRefresher:
 
 
 def _build_ai_output(
-    *, matched_task_id: str | None, confidence: float, task_title: str = "Settlement Reconciliation"
+    *,
+    matched_task_id: str | None,
+    confidence: float,
+    task_title: str = "Settlement Reconciliation",
+    log_summary: str = "",
 ) -> AIPipelineOutput:
     return AIPipelineOutput(
-        extraction=ExtractionResult(task_title=task_title, stakeholder=["Finance"], extraction_confidence=confidence),
+        extraction=ExtractionResult(
+            task_title=task_title, stakeholder=["Finance"], extraction_confidence=confidence, log_summary=log_summary
+        ),
         match=MatchResult(
             matched_task_id=matched_task_id,
             matched_task_title=task_title if matched_task_id else None,
@@ -409,3 +415,37 @@ async def test_search_logs_filters_by_task_and_date():
 
     none_for_bad_date = await service.search_logs(on_date=date(2000, 1, 1))
     assert none_for_bad_date == []
+
+
+@pytest.mark.asyncio
+async def test_committed_log_carries_the_ai_rephrased_summary():
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS)
+    )
+    rephrased = "Finance approved the settlement fix; QA is scheduled for tomorrow."
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97, log_summary=rephrased)
+    service, _ = _make_service(ai_output, task_repo=task_repo)
+
+    committed = await service.process_message(request_id="req-10", user_id="u1", message="fin approved fix. qa 2moro")
+
+    log = await service.get_log(committed.log_id)
+    assert log.original_message == "fin approved fix. qa 2moro"
+    assert log.log_summary == rephrased
+
+
+@pytest.mark.asyncio
+async def test_edit_log_summary_updates_summary_without_touching_original_message():
+    task_repo = FakeTaskRepository()
+    await task_repo.create(
+        Task(task_id="T001", title="Settlement Reconciliation", stakeholder=["Finance"], status=TaskStatus.IN_PROGRESS)
+    )
+    ai_output = _build_ai_output(matched_task_id="T001", confidence=0.97, log_summary="Original AI summary.")
+    service, _ = _make_service(ai_output, task_repo=task_repo)
+
+    committed = await service.process_message(request_id="req-11", user_id="u1", message="raw text here")
+
+    updated = await service.edit_log_summary(committed.log_id, "Corrected, human-edited summary.")
+
+    assert updated.log_summary == "Corrected, human-edited summary."
+    assert updated.original_message == "raw text here"

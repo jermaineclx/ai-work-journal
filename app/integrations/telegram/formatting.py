@@ -112,6 +112,7 @@ def render_log_detail(log: DailyLog, task_title: str) -> str:
         "",
         f"Date: {log.date.isoformat()}",
         f"Message: {log.original_message}",
+        f"Summary: {log.log_summary or '(none yet)'}",
         "",
         f"Stakeholder: {_fmt_stakeholders(log.stakeholder)}",
         f"Status: {log.status.value if log.status else '—'}",
@@ -173,6 +174,7 @@ def render_all_logs(logs: list[DailyLog], tasks_by_id: dict[str, Task]) -> list[
         blocks.append(
             f"[{log.log_id}] {log.date.isoformat()} — {task_label}\n"
             f"Message: {log.original_message}\n"
+            f"Summary: {log.log_summary or '(none yet)'}\n"
             f"Stakeholder: {_fmt_stakeholders(log.stakeholder)}\n"
             f"Status: {log.status.value if log.status else '—'}\n"
             f"Next steps: {log.next_steps or '—'}\n"

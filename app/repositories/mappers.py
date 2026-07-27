@@ -97,6 +97,7 @@ def daily_log_to_row(log: DailyLog) -> dict[str, Any]:
         "Tags": _join(log.tags, _TAG_SEP),
         "Impact": log.impact.value,
         "Timestamp": log.timestamp.isoformat(),
+        "Log Summary": log.log_summary,
     }
 
 
@@ -114,6 +115,7 @@ def row_to_daily_log(record: dict[str, Any]) -> DailyLog:
         tags=_split(str(record.get("Tags", "")), _TAG_SEP),
         impact=ImpactLevel(record.get("Impact") or ImpactLevel.INFORMATIONAL.value),
         timestamp=_parse_datetime(record.get("Timestamp")),
+        log_summary=str(record.get("Log Summary") or ""),
     )
 
 

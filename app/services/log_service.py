@@ -260,6 +260,14 @@ class LogService:
         await self._logs.update_extracted_fields(log)
         return log
 
+    async def edit_log_summary(self, log_id: str, log_summary: str) -> DailyLog:
+        """Manual correction to the AI-rephrased summary — `original_message`
+        stays untouched regardless."""
+        log = await self._logs.require_by_id(log_id)
+        log.log_summary = log_summary
+        await self._logs.update_extracted_fields(log)
+        return log
+
     async def _commit(
         self,
         *,
@@ -321,6 +329,7 @@ class LogService:
             tags=ai_output.tags.tags,
             impact=ai_output.impact.impact,
             request_id=request_id,
+            log_summary=ai_output.extraction.log_summary,
         )
         await self._logs.append(daily_log)
 

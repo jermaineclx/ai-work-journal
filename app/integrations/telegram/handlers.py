@@ -68,7 +68,7 @@ HELP_TEXT = (
 _TASK_ID_PATTERN = re.compile(r"^[Tt]\d+$")
 
 _TASK_EDITABLE_FIELDS = ["title", "stakeholder", "status", "priority", "tags", "resources", "summary"]
-_LOG_EDITABLE_FIELDS = ["date", "stakeholder", "status", "next_steps", "tags", "resources", "impact"]
+_LOG_EDITABLE_FIELDS = ["date", "stakeholder", "status", "next_steps", "tags", "resources", "impact", "log_summary"]
 
 
 def _parse_status(value: str) -> TaskStatus | None:
@@ -122,6 +122,8 @@ def _parse_stakeholders(value: str) -> tuple[list[str], list[str]]:
 def _field_prompt(field: str, entity: str) -> str:
     if field == "resources":
         return f"Send resource(s) to add to this {entity}, comma-separated (added to the existing list, or /cancel):"
+    if field == "log_summary":
+        return "Send the new summary for this log (or /cancel):"
     return f"Send the new {field.replace('_', ' ')} for this {entity} (or /cancel):"
 
 
@@ -418,6 +420,8 @@ async def _apply_log_field_edit(
                 )
                 return
             log = await container.log_service.edit_log_impact(log_id, impact)
+        elif field == "log_summary":
+            log = await container.log_service.edit_log_summary(log_id, value)
         else:
             await update.message.reply_text(f"Can't edit '{field}' on a log.")
             return
